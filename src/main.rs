@@ -1,84 +1,91 @@
-use crossterm::{
-    cursor, event, execute, queue,
-    style::{Color, Print, PrintStyledContent, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal, ExecutableCommand,
-};
 use git2::{BranchType, Delta, DiffDelta, DiffOptions, Repository};
-use std::error::Error;
-use std::format;
-use std::io::{stdout, Write};
+use std::ffi::CString;
+use std::io;
+use std::path::Path;
+use termion::raw::IntoRawMode;
+use tui::backend::TermionBackend;
+use tui::Terminal;
+use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
+use std::time::Duration;
 
-fn get_repo_diff<'a>(
-    repo: &'a Repository,
-    branch_name: &str,
-) -> Result<git2::Diff<'a>, git2::Error> {
-    let mut diff_options = DiffOptions::default();
-
-    repo.find_branch(branch_name, BranchType::Local)
-        .map(|m| m.into_reference())
-        .and_then(|r| r.peel_to_tree())
-        .and_then(|t| repo.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
+pub mod ui;
+pub mod event;
+struct CodeRepo {
+    repo: Repository,
 }
 
-fn format_delta(delta: DiffDelta) -> String {
-    let status = delta.status();
+impl CodeRepo {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<CodeRepo, git2::Error> {
+        let repo = Repository::open(path);
 
-    let status_text = match status {
-        Delta::Added => "added",
-        Delta::Deleted => "deleted",
-        Delta::Unmodified => "unmodified",
-        Delta::Modified => "modified",
-        Delta::Renamed => "renamed",
-        Delta::Copied => "copied",
-        Delta::Ignored => "ignored",
-        Delta::Untracked => "untrakced",
-        Delta::Typechange => "typechange",
-        Delta::Unreadable => "unreadable",
-        Delta::Conflicted => "conflicted",
-    };
-    let file_path = delta
-        .new_file()
-        .path()
-        .or(delta.old_file().path())
-        .and_then(|p| p.to_str());
+        match repo {
+            Ok(repo) => Ok(CodeRepo { repo }),
+            Err(e) => Err(e),
+        }
+    }
 
-    match file_path {
-        Some(path) => format!("{} {}", status_text, path),
-        None => format!("{} unknown file\n", status_text),
+    pub fn all_files(&mut self) -> Vec<String> {
+        let index = self.repo.index().unwrap();
+        index
+            .iter()
+            .map(|f| {
+                CString::new(&f.path[..])
+                    .unwrap()
+                    .to_str()
+                    .map(String::from)
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    pub fn all_spec_files(&mut self) -> Vec<String> {
+        self.all_files()
+            .into_iter()
+            .filter(|s| s.ends_with("_spec.rb"))
+            .collect()
+    }
+
+    pub fn changed_files(&mut self, branch_name: &str) -> Vec<String> {
+        let mut diff_options = DiffOptions::default();
+        let r = &self.repo;
+
+        r.find_branch(branch_name, BranchType::Local)
+            .map(|m| m.into_reference())
+            .and_then(|r| r.peel_to_tree())
+            .and_then(|t| r.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
+            .map(|diff| {
+                diff.deltas()
+                    .filter_map(|delta| match delta.status() {
+                        Delta::Deleted => None,
+                        Delta::Unmodified => None,
+                        Delta::Ignored => None,
+                        Delta::Unreadable => None,
+                        _ => delta
+                            .new_file()
+                            .path()
+                            .and_then(|p| p.to_str().map(String::from)),
+                    })
+                    .collect::<Vec<String>>()
+            })
+            .unwrap()
     }
 }
 
 fn main() -> crossterm::Result<()> {
-    let mut stdout = stdout();
-    stdout.execute(terminal::Clear(terminal::ClearType::All))?;
-    let mut x = 1;
-    let mut y = 1;
-    queue!(stdout, cursor::MoveTo(x, y))?;
+    let stdout = io::stdout().into_raw_mode()?;
+    let backend = TermionBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    let repo = match Repository::open(".") {
+    let mut repo = match CodeRepo::open(".") {
         Ok(r) => r,
         Err(_) => {
             panic!();
         }
     };
 
-    let diff = get_repo_diff(&repo, "master");
+    let mut watcher:RecommendedWatcher= Watcher::new_immediate(|res|
 
-    match diff {
-        Ok(diff) => {
-            for item in diff.deltas() {
-                let status = format_delta(item);
-                queue!(stdout, Print(status));
-                y += 1;
-                queue!(stdout, cursor::MoveTo(x, y));
-            }
-        }
-        Err(e) => {
-            queue!(stdout, Print(format!("{:}\n", e)));
-        }
-    };
-
-    stdout.flush()?;
+    terminal.draw(|f| ui::draw(f));
 
     Ok(())
 }

@@ -556,6 +556,7 @@ dependencies = [
 name = "spec_detect"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "crossterm",
  "git2",
  "notify",
