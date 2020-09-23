@@ -7,6 +7,8 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
+use notify::{EventFn, RecommendedWatcher, RecursiveMode, Watcher};
+
 use termion::event::Key;
 use termion::input::TermRead;
 
@@ -24,17 +26,19 @@ pub struct Events {
     tick_handle: thread::JoinHandle<()>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub exit_key: Key,
     pub tick_rate: Duration,
+    pub paths: Vec<String>,
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
             exit_key: Key::Char('q'),
-            tick_rate: Duration::from_millis(250),
+            tick_rate: Duration::from_millis(1000),
+            paths: vec![String::from(".")],
         }
     }
 }
@@ -71,6 +75,17 @@ impl Events {
                 thread::sleep(config.tick_rate);
             })
         };
+
+        let mut watcher: RecommendedWatcher = Watcher::new_immediate(|res| match res {
+            Ok(event) => println!("event: {:?}", event),
+            Err(e) => println!("watch error: {:?}", e),
+        })
+        .unwrap();
+
+        for path in config.paths {
+            watcher.watch(path, RecursiveMode::Recursive);
+        }
+
         Events {
             rx,
             ignore_exit_key,

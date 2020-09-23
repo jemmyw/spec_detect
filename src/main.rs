@@ -5,11 +5,11 @@ use std::path::Path;
 use termion::raw::IntoRawMode;
 use tui::backend::TermionBackend;
 use tui::Terminal;
-use notify::{Watcher, RecommendedWatcher, RecursiveMode, Result};
-use std::time::Duration;
 
-pub mod ui;
 pub mod event;
+pub mod ui;
+pub mod watcher;
+
 struct CodeRepo {
     repo: Repository,
 }
@@ -82,10 +82,6 @@ fn main() -> crossterm::Result<()> {
             panic!();
         }
     };
-
-    let mut watcher:RecommendedWatcher= Watcher::new_immediate(|res|
-
-    terminal.draw(|f| ui::draw(f));
 
     Ok(())
 }
