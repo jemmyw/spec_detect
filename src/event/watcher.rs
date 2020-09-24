@@ -63,7 +63,7 @@ impl Watcher {
                     let path = raw_event.path;
                     dbg!(path.clone());
                     let event = Event { path };
-                    tx.send(event);
+                    tx.send(event).expect("could not send event");
                 }
                 _ => {}
             }

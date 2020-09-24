@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut repo = match CodeRepo::open(".") {
+    let repo = match CodeRepo::open(".") {
         Ok(r) => r,
         Err(_) => {
             panic!();
@@ -29,9 +29,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let events = Events::with_config(Config::default());
-    let mut app = App::new();
+    let mut app = App::new(repo);
 
-    terminal.clear();
+    terminal.clear()?;
 
     loop {
         terminal.draw(|f| ui::draw(f, &mut app))?;
@@ -47,9 +47,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 _ => {}
             },
-            Event::File(event) => {
-                dbg!(event.path);
-            }
+            Event::File(event) => match event.path {
+                Some(path) => {
+                    app.on_file(path);
+                }
+                None => {}
+            },
             _ => {}
         }
 
@@ -58,7 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    terminal.clear();
+    terminal.clear()?;
 
     Ok(())
 }
