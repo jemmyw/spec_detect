@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 git2 = "*"
 crossbeam-channel = "0.4.0"
-notify = "5.0.0-pre.3"
+notify = "4.0.12"
 crossterm = "*"
 tui = "*"
 termion = "*"
