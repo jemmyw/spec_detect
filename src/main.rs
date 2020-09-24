@@ -1,7 +1,9 @@
+mod app;
 mod code_repo;
 mod event;
 mod ui;
 
+use app::App;
 use code_repo::CodeRepo;
 use event::{Config, Event, Events};
 
@@ -27,18 +29,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let events = Events::with_config(Config::default());
-    let mut should_quit = false;
+    let mut app = App::new();
 
     terminal.clear();
 
     loop {
-        terminal.draw(|f| ui::draw(f))?;
+        terminal.draw(|f| ui::draw(f, &mut app))?;
 
         match events.next()? {
             Event::Input(key) => match key {
                 Key::Char('q') => {
                     dbg!("quit");
-                    should_quit = true;
+                    app.on_quit();
                 }
                 Key::Char(c) => {
                     dbg!(c);
@@ -51,7 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
 
-        if should_quit {
+        if app.should_quit {
             break;
         }
     }
