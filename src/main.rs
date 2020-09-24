@@ -29,6 +29,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let events = Events::with_config(Config::default());
     let mut should_quit = false;
 
+    terminal.clear();
+
     loop {
         terminal.draw(|f| ui::draw(f))?;
 
@@ -53,6 +55,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             break;
         }
     }
+
+    terminal.clear();
 
     Ok(())
 }
