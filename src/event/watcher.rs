@@ -40,7 +40,7 @@ impl Watcher {
             let mut watcher = PollWatcher::with_delay_ms(raw_tx, interval_ms)?;
             for path in paths {
                 watcher.watch(path, RecursiveMode::Recursive)?;
-                dbg!("Watching {:?}", path);
+                dbg!("Poll Watching {:?}", path);
             }
 
             WatcherImpl::Poll(watcher)
@@ -48,7 +48,7 @@ impl Watcher {
             let mut watcher = raw_watcher(raw_tx)?;
             for path in paths {
                 watcher.watch(path, RecursiveMode::Recursive)?;
-                dbg!("Watching {:?}", path);
+                dbg!("INotify Watching {:?}", path);
             }
 
             WatcherImpl::Recommended(watcher)
@@ -56,17 +56,11 @@ impl Watcher {
 
         let tx = tx.clone();
         let thread = thread::spawn(move || loop {
-            let raw_event = raw_rx.recv();
-
-            match raw_event {
-                Ok(raw_event) => {
-                    let path = raw_event.path;
-                    dbg!(path.clone());
-                    let event = Event { path };
-                    tx.send(event).expect("could not send event");
-                }
-                _ => {}
-            }
+            let raw_event = raw_rx.recv().unwrap();
+            let path = raw_event.path;
+            dbg!(&path);
+            let event = Event { path };
+            tx.send(event).expect("could not send event");
         });
 
         Ok(Self {

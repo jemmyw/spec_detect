@@ -1,11 +1,11 @@
-use git2::{BranchType, Delta, DiffDelta, DiffOptions, Repository};
+use git2::{BranchType, Delta, DiffOptions, Repository};
 use std::ffi::CString;
-use std::io;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone)]
 pub struct ChangedFile {
-    path: PathBuf,
-    status: Delta,
+    pub path: PathBuf,
+    pub status: Delta,
 }
 
 pub struct CodeRepo {
@@ -51,7 +51,7 @@ impl CodeRepo {
         self.all_files_ending("_spec.rb")
     }
 
-    pub fn changed_files(&mut self, branch_name: &str) -> Vec<String> {
+    pub fn changed_files(&mut self, branch_name: &str) -> Vec<ChangedFile> {
         let mut diff_options = DiffOptions::default();
         let r = &self.repo;
 
@@ -69,17 +69,13 @@ impl CodeRepo {
                             Delta::Unmodified => None,
                             Delta::Ignored => None,
                             Delta::Unreadable => None,
-                            _ => delta.new_file().path().and_then(|p|  {
-                              let buf = p.to_path_buf();
-                              
-                              
-                              ChangedFile {
-                                path: p.to_str().map(PathBuf::from),
+                            _ => delta.new_file().path().map(|p| ChangedFile {
+                                path: p.to_path_buf(),
                                 status,
-                            }}),
+                            }),
                         }
                     })
-                    .collect::<Vec<String>>()
+                    .collect::<Vec<ChangedFile>>()
             })
             .unwrap()
     }

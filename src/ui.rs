@@ -18,14 +18,22 @@ pub fn draw<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     //     .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
     //     .split(f.size());
 
-    let text = vec![Spans::from("this is some text")];
+    let files: Vec<ListItem> = app
+        .changed_files
+        .iter()
+        .map(|c| {
+            let t = c.path.to_string_lossy();
+            ListItem::new(vec![Spans::from(Span::raw(t))])
+        })
+        .collect();
+    let list = List::new(files).block(
+        Block::default().borders(Borders::ALL).title(Span::styled(
+            "Changed files",
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        )),
+    );
 
-    let block = Block::default().borders(Borders::ALL).title(Span::styled(
-        "block title",
-        Style::default()
-            .fg(Color::Magenta)
-            .add_modifier(Modifier::BOLD),
-    ));
-    let p = Paragraph::new(text).block(block).wrap(Wrap { trim: true });
-    f.render_widget(p, f.size())
+    f.render_widget(list, f.size())
 }

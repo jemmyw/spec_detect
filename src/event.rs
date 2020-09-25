@@ -26,7 +26,7 @@ pub struct Events {
     rx: mpsc::Receiver<Event<Key, watcher::Event>>,
     input_handle: thread::JoinHandle<()>,
     tick_handle: thread::JoinHandle<()>,
-    watcher_handle: thread::JoinHandle<()>,
+    watcher_handle: (Watcher, thread::JoinHandle<()>),
 }
 
 #[derive(Debug)]
@@ -92,18 +92,16 @@ impl Events {
             let paths_vec = paths_iter.collect::<Vec<PathBuf>>();
 
             let tx = tx.clone();
-
-            thread::spawn(move || {
-                let (w_tx, w_rx) = mpsc::channel();
-                Watcher::new(w_tx, paths_vec.as_slice(), false, 0).unwrap();
-
-                loop {
-                    match w_rx.recv() {
-                        Ok(event) => tx.send(Event::File(event)).expect("could not send event"),
-                        _ => {}
-                    }
+            let (w_tx, w_rx) = mpsc::channel();
+            let watcher = Watcher::new(w_tx, paths_vec.as_slice(), false, 0).unwrap();
+            let thread_handle = thread::spawn(move || loop {
+                match w_rx.recv() {
+                    Ok(event) => tx.send(Event::File(event)).expect("could not send event"),
+                    _ => {}
                 }
-            })
+            });
+
+            (watcher, thread_handle)
         };
 
         Events {
