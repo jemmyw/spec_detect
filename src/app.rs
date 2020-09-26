@@ -27,9 +27,9 @@ fn sort_changed_files(files: &Vec<ChangedFile>) -> Vec<ChangedFile> {
 }
 
 impl App {
-    pub fn new(repo: CodeRepo) -> App {
+    pub fn new(repo: CodeRepo, branch_name: &str) -> App {
         let mut r = repo;
-        let changed_files = sort_changed_files(&r.changed_files("master"));
+        let changed_files = sort_changed_files(&r.changed_files(branch_name));
 
         App {
             should_quit: false,
@@ -40,10 +40,6 @@ impl App {
 
     fn prefix(&self) -> PathBuf {
         self.repo.path().unwrap()
-    }
-
-    fn changed_files(&mut self) -> Vec<ChangedFile> {
-        sort_changed_files(&self.repo.changed_files("master"))
     }
 
     fn add_changed_file(&mut self, p: PathBuf, delta: Delta) -> Result<&Self, Box<dyn Error>> {

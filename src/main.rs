@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut config = Config::default();
     config.paths = vec!["src".to_owned()];
     let events = Events::with_config(config);
-    let mut app = App::new(repo);
+    let mut app = App::new(repo, "master");
 
     terminal.clear()?;
 
