@@ -28,7 +28,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let events = Events::with_config(Config::default());
+    let mut config = Config::default();
+    config.paths = vec!["src".to_owned()];
+    let events = Events::with_config(config);
     let mut app = App::new(repo);
 
     terminal.clear()?;
@@ -47,12 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 _ => {}
             },
-            Event::File(event) => match event.path {
-                Some(path) => {
-                    app.on_file(path);
-                }
-                None => {}
-            },
+            Event::File(event) => app.on_file_event(event),
             _ => {}
         }
 

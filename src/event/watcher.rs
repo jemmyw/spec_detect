@@ -1,7 +1,6 @@
-use notify::{raw_watcher, PollWatcher, RecommendedWatcher, RecursiveMode};
+use notify::{watcher, RecommendedWatcher, RecursiveMode};
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread;
+use std::sync::mpsc::Sender;
 
 /// Thin wrapper over the notify crate
 ///
@@ -11,41 +10,25 @@ use std::thread;
 /// all coupling to the notify crate into this module.
 pub struct Watcher {
     watcher_impl: WatcherImpl,
-    thread: thread::JoinHandle<()>,
 }
 
+pub use notify::DebouncedEvent;
 pub use notify::Error;
-pub use notify::RawEvent;
-
-pub struct Event {
-    pub path: Option<PathBuf>,
-}
 
 enum WatcherImpl {
     Recommended(RecommendedWatcher),
-    Poll(PollWatcher),
 }
 
 impl Watcher {
     pub fn new(
-        tx: Sender<Event>,
+        tx: Sender<DebouncedEvent>,
         paths: &[PathBuf],
-        poll: bool,
-        interval_ms: u32,
+        interval_ms: u64,
     ) -> Result<Self, Error> {
         use notify::Watcher;
-        let (raw_tx, raw_rx): (Sender<RawEvent>, Receiver<RawEvent>) = std::sync::mpsc::channel();
 
-        let imp = if poll {
-            let mut watcher = PollWatcher::with_delay_ms(raw_tx, interval_ms)?;
-            for path in paths {
-                watcher.watch(path, RecursiveMode::Recursive)?;
-                dbg!("Poll Watching {:?}", path);
-            }
-
-            WatcherImpl::Poll(watcher)
-        } else {
-            let mut watcher = raw_watcher(raw_tx)?;
+        let imp = {
+            let mut watcher = watcher(tx, std::time::Duration::from_millis(interval_ms))?;
             for path in paths {
                 watcher.watch(path, RecursiveMode::Recursive)?;
                 dbg!("INotify Watching {:?}", path);
@@ -54,26 +37,6 @@ impl Watcher {
             WatcherImpl::Recommended(watcher)
         };
 
-        let tx = tx.clone();
-        let thread = thread::spawn(move || loop {
-            let raw_event = raw_rx.recv().unwrap();
-            let path = raw_event.path;
-            dbg!(&path);
-            let event = Event { path };
-            tx.send(event).expect("could not send event");
-        });
-
-        Ok(Self {
-            watcher_impl: imp,
-            thread,
-        })
-    }
-
-    pub fn is_polling(&self) -> bool {
-        if let WatcherImpl::Poll(_) = self.watcher_impl {
-            true
-        } else {
-            false
-        }
+        Ok(Self { watcher_impl: imp })
     }
 }

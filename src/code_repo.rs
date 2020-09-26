@@ -22,6 +22,14 @@ impl CodeRepo {
         }
     }
 
+    pub fn path(&self) -> Option<PathBuf> {
+        self.repo
+            .path()
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    }
+
     pub fn all_files(&mut self) -> Vec<String> {
         let index = self.repo.index().unwrap();
         index

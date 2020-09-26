@@ -1,4 +1,7 @@
 use crate::code_repo::{ChangedFile, CodeRepo};
+use crate::event::DebouncedEvent;
+use git2::Delta;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -12,7 +15,7 @@ fn modified<P: AsRef<Path>>(path: P) -> io::Result<std::time::SystemTime> {
     fs::metadata(path).and_then(|m| m.modified())
 }
 
-fn sort_changed_files(files: Vec<ChangedFile>) -> Vec<ChangedFile> {
+fn sort_changed_files(files: &Vec<ChangedFile>) -> Vec<ChangedFile> {
     let mut unsorted = files.to_vec();
     unsorted.sort_by(|a, b| {
         modified(a.path.to_path_buf())
@@ -26,7 +29,7 @@ fn sort_changed_files(files: Vec<ChangedFile>) -> Vec<ChangedFile> {
 impl App {
     pub fn new(repo: CodeRepo) -> App {
         let mut r = repo;
-        let changed_files = sort_changed_files(r.changed_files("master"));
+        let changed_files = sort_changed_files(&r.changed_files("master"));
 
         App {
             should_quit: false,
@@ -35,12 +38,58 @@ impl App {
         }
     }
 
-    fn changed_files(&mut self) -> Vec<ChangedFile> {
-        sort_changed_files(self.repo.changed_files("master"))
+    fn prefix(&self) -> PathBuf {
+        self.repo.path().unwrap()
     }
 
-    pub fn on_file(&mut self, path: PathBuf) {
-        self.changed_files = self.changed_files();
+    fn changed_files(&mut self) -> Vec<ChangedFile> {
+        sort_changed_files(&self.repo.changed_files("master"))
+    }
+
+    fn add_changed_file(&mut self, p: PathBuf, delta: Delta) -> Result<&Self, Box<dyn Error>> {
+        self.remove_changed_file(&p);
+
+        match p.strip_prefix(self.prefix()) {
+            Ok(path) => {
+                let changed_file = ChangedFile {
+                    path: path.to_path_buf(),
+                    status: delta,
+                };
+
+                self.changed_files.push(changed_file);
+                self.changed_files = sort_changed_files(&self.changed_files);
+                Ok(self)
+            }
+            Err(e) => Err(Box::from(e)),
+        }
+    }
+
+    fn remove_changed_file(&mut self, p: &PathBuf) {
+        match p
+            .strip_prefix(self.prefix())
+            .ok()
+            .and_then(|p| self.changed_files.iter().position(|f| f.path.eq(p)))
+        {
+            Some(index) => {
+                self.changed_files.remove(index);
+            }
+            None => {}
+        }
+    }
+
+    pub fn on_file_event(&mut self, event: DebouncedEvent) {
+        match event {
+            DebouncedEvent::Create(f) => {
+                self.add_changed_file(f, Delta::Added);
+            }
+            DebouncedEvent::Write(f) | DebouncedEvent::NoticeWrite(f) => {
+                self.add_changed_file(f, Delta::Modified);
+            }
+            DebouncedEvent::Remove(f) => {
+                self.remove_changed_file(&f);
+            }
+            _ => {}
+        }
     }
 
     pub fn on_quit(&mut self) {

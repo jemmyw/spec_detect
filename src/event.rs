@@ -11,7 +11,8 @@ use std::time::Duration;
 use termion::event::Key;
 use termion::input::TermRead;
 
-mod watcher;
+pub mod watcher;
+pub use watcher::DebouncedEvent;
 use watcher::Watcher;
 
 pub enum Event<I, F> {
@@ -23,7 +24,7 @@ pub enum Event<I, F> {
 /// A small event handler that wrap termion input and tick events. Each event
 /// type is handled in its own thread and returned to a common `Receiver`
 pub struct Events {
-    rx: mpsc::Receiver<Event<Key, watcher::Event>>,
+    rx: mpsc::Receiver<Event<Key, watcher::DebouncedEvent>>,
     input_handle: thread::JoinHandle<()>,
     tick_handle: thread::JoinHandle<()>,
     watcher_handle: (Watcher, thread::JoinHandle<()>),
@@ -93,7 +94,7 @@ impl Events {
 
             let tx = tx.clone();
             let (w_tx, w_rx) = mpsc::channel();
-            let watcher = Watcher::new(w_tx, paths_vec.as_slice(), false, 0).unwrap();
+            let watcher = Watcher::new(w_tx, paths_vec.as_slice(), 0).unwrap();
             let thread_handle = thread::spawn(move || loop {
                 match w_rx.recv() {
                     Ok(event) => tx.send(Event::File(event)).expect("could not send event"),
@@ -112,7 +113,7 @@ impl Events {
         }
     }
 
-    pub fn next(&self) -> Result<Event<Key, watcher::Event>, mpsc::RecvError> {
+    pub fn next(&self) -> Result<Event<Key, watcher::DebouncedEvent>, mpsc::RecvError> {
         self.rx.recv()
     }
 }
