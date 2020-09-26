@@ -1,8 +1,8 @@
-use git2::{BranchType, Delta, DiffOptions, Repository};
+use git2::{BranchType, Delta, DiffOptions, Repository, Status, StatusOptions};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChangedFile {
     pub path: PathBuf,
     pub status: Delta,
@@ -61,30 +61,42 @@ impl CodeRepo {
 
     pub fn changed_files(&mut self, branch_name: &str) -> Vec<ChangedFile> {
         let mut diff_options = DiffOptions::default();
+        let mut status_options = StatusOptions::default();
+        status_options.include_untracked(true);
+
         let r = &self.repo;
 
-        r.find_branch(branch_name, BranchType::Local)
+        let statuses = r.statuses(Some(&mut status_options)).unwrap();
+        let from_status = statuses.iter().filter_map(|s| match s.status() {
+            Status::WT_NEW => s.path().map(|p| ChangedFile {
+                path: PathBuf::from(p),
+                status: Delta::Added,
+            }),
+            _ => None,
+        });
+
+        let diff = r
+            .find_branch(branch_name, BranchType::Local)
             .map(|m| m.into_reference())
             .and_then(|r| r.peel_to_tree())
             .and_then(|t| r.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
-            .map(|diff| {
-                diff.deltas()
-                    .filter_map(|delta| {
-                        let status = delta.status();
+            .unwrap();
 
-                        match status {
-                            Delta::Deleted => None,
-                            Delta::Unmodified => None,
-                            Delta::Ignored => None,
-                            Delta::Unreadable => None,
-                            _ => delta.new_file().path().map(|p| ChangedFile {
-                                path: p.to_path_buf(),
-                                status,
-                            }),
-                        }
-                    })
-                    .collect::<Vec<ChangedFile>>()
-            })
-            .unwrap()
+        let from_diff = diff.deltas().filter_map(|delta| {
+            let status = delta.status();
+
+            match status {
+                Delta::Deleted => None,
+                Delta::Unmodified => None,
+                Delta::Ignored => None,
+                Delta::Unreadable => None,
+                _ => delta.new_file().path().map(|p| ChangedFile {
+                    path: p.to_path_buf(),
+                    status,
+                }),
+            }
+        });
+
+        from_status.chain(from_diff).collect::<Vec<ChangedFile>>()
     }
 }

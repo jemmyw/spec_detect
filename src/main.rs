@@ -1,11 +1,13 @@
 mod app;
 mod code_repo;
 mod event;
+mod ruby;
 mod ui;
 
 use app::App;
 use code_repo::CodeRepo;
 use event::{Config, Event, Events};
+use ruby::RSpec;
 
 use std::error::Error;
 use std::io;
