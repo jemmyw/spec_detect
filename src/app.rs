@@ -42,25 +42,22 @@ impl App {
         self.repo.path().unwrap()
     }
 
-    fn add_changed_file(&mut self, p: PathBuf, delta: Delta) -> Result<&Self, Box<dyn Error>> {
+    fn add_changed_file(&mut self, p: PathBuf, delta: Delta) -> anyhow::Result<&Self> {
         self.remove_changed_file(&p);
 
-        match p.strip_prefix(self.prefix()) {
-            Ok(path) => {
-                let changed_file = ChangedFile {
-                    path: path.to_path_buf(),
-                    status: delta,
-                };
+        let path = p.strip_prefix(self.prefix())?;
+        let changed_file = ChangedFile {
+            path: path.to_path_buf(),
+            status: delta,
+        };
 
-                self.changed_files.push(changed_file);
-                self.changed_files = sort_changed_files(&self.changed_files);
-                Ok(self)
-            }
-            Err(e) => Err(Box::from(e)),
-        }
+        self.changed_files.push(changed_file);
+        self.changed_files = sort_changed_files(&self.changed_files);
+
+        Ok(self)
     }
 
-    fn remove_changed_file(&mut self, p: &PathBuf) {
+    fn remove_changed_file(&mut self, p: &PathBuf) -> anyhow::Result<&Self> {
         match p
             .strip_prefix(self.prefix())
             .ok()
@@ -71,20 +68,18 @@ impl App {
             }
             None => {}
         }
+
+        Ok(self)
     }
 
-    pub fn on_file_event(&mut self, event: DebouncedEvent) {
+    pub fn on_file_event(&mut self, event: DebouncedEvent) -> anyhow::Result<&Self> {
         match event {
-            DebouncedEvent::Create(f) => {
-                self.add_changed_file(f, Delta::Added);
-            }
+            DebouncedEvent::Create(f) => self.add_changed_file(f, Delta::Added),
             DebouncedEvent::Write(f) | DebouncedEvent::NoticeWrite(f) => {
-                self.add_changed_file(f, Delta::Modified);
+                self.add_changed_file(f, Delta::Modified)
             }
-            DebouncedEvent::Remove(f) => {
-                self.remove_changed_file(&f);
-            }
-            _ => {}
+            DebouncedEvent::Remove(f) => self.remove_changed_file(&f),
+            _ => Ok(self),
         }
     }
 

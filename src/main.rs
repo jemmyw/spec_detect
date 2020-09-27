@@ -9,7 +9,7 @@ use code_repo::CodeRepo;
 use event::{Config, Event, Events};
 use ruby::RSpec;
 
-use std::error::Error;
+use anyhow::{Context, Result};
 use std::io;
 
 use termion::event::Key;
@@ -18,27 +18,25 @@ use termion::raw::IntoRawMode;
 use tui::backend::TermionBackend;
 use tui::Terminal;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let stdout = io::stdout().into_raw_mode()?;
+fn main() -> Result<()> {
+    let stdout = io::stdout()
+        .into_raw_mode()
+        .context("Could not open stdout")?;
     let backend = TermionBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
+    terminal.clear().context("Could not clear the terminal")?;
 
-    let repo = match CodeRepo::open(".") {
-        Ok(r) => r,
-        Err(_) => {
-            panic!();
-        }
-    };
+    let repo = CodeRepo::open(".").context("Could not open git repository in .")?;
 
     let mut config = Config::default();
     config.paths = vec!["src".to_owned()];
     let events = Events::with_config(config);
     let mut app = App::new(repo, "master");
 
-    terminal.clear()?;
-
     loop {
-        terminal.draw(|f| ui::draw(f, &mut app))?;
+        terminal
+            .draw(|f| ui::draw(f, &mut app))
+            .context("Error while updating UI")?;
 
         match events.next()? {
             Event::Input(key) => match key {
@@ -51,7 +49,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 _ => {}
             },
-            Event::File(event) => app.on_file_event(event),
+            Event::File(event) => {
+                app.on_file_event(event).ok();
+            }
             _ => {}
         }
 
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    terminal.clear()?;
+    terminal.clear().ok();
 
     Ok(())
 }
