@@ -9,6 +9,11 @@ RSpec.describe do
     it "passes 2" do
       expect(false).to eq false
     end
+
+    it "passes longly" do
+      sleep 1
+      expect(true).to eq true
+    end
   end
 
   describe "failing specs", failing: true do

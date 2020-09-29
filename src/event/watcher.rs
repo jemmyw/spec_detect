@@ -2,14 +2,8 @@ use notify::{watcher, RecommendedWatcher, RecursiveMode};
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
-/// Thin wrapper over the notify crate
-///
-/// `PollWatcher` and `RecommendedWatcher` are distinct types, but watchexec
-/// really just wants to handle them without regard to the exact type
-/// (e.g. polymorphically). This has the nice side effect of separating out
-/// all coupling to the notify crate into this module.
 pub struct Watcher {
-    watcher_impl: WatcherImpl,
+    _watcher_impl: WatcherImpl,
 }
 
 pub use notify::DebouncedEvent;
@@ -37,6 +31,6 @@ impl Watcher {
             WatcherImpl::Recommended(watcher)
         };
 
-        Ok(Self { watcher_impl: imp })
+        Ok(Self { _watcher_impl: imp })
     }
 }

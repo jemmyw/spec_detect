@@ -1,5 +1,5 @@
 use git2::{BranchType, Delta, DiffOptions, Repository, Status, StatusOptions};
-use std::ffi::CString;
+// use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
@@ -30,34 +30,34 @@ impl CodeRepo {
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
     }
 
-    pub fn all_files(&mut self) -> Vec<String> {
-        let index = self.repo.index().unwrap();
-        index
-            .iter()
-            .map(|f| {
-                CString::new(&f.path[..])
-                    .unwrap()
-                    .to_str()
-                    .map(String::from)
-                    .unwrap()
-            })
-            .collect()
-    }
+    // pub fn all_files(&mut self) -> Vec<String> {
+    //     let index = self.repo.index().unwrap();
+    //     index
+    //         .iter()
+    //         .map(|f| {
+    //             CString::new(&f.path[..])
+    //                 .unwrap()
+    //                 .to_str()
+    //                 .map(String::from)
+    //                 .unwrap()
+    //         })
+    //         .collect()
+    // }
 
-    pub fn all_files_ending(&mut self, ending: &str) -> Vec<String> {
-        self.all_files()
-            .into_iter()
-            .filter(|s| s.ends_with(ending))
-            .collect()
-    }
+    // pub fn all_files_ending(&mut self, ending: &str) -> Vec<String> {
+    //     self.all_files()
+    //         .into_iter()
+    //         .filter(|s| s.ends_with(ending))
+    //         .collect()
+    // }
 
-    pub fn all_ruby_files(&mut self) -> Vec<String> {
-        self.all_files_ending(".rb")
-    }
+    // pub fn all_ruby_files(&mut self) -> Vec<String> {
+    //     self.all_files_ending(".rb")
+    // }
 
-    pub fn all_spec_files(&mut self) -> Vec<String> {
-        self.all_files_ending("_spec.rb")
-    }
+    // pub fn all_spec_files(&mut self) -> Vec<String> {
+    //     self.all_files_ending("_spec.rb")
+    // }
 
     pub fn changed_files(&mut self, branch_name: &str) -> Vec<ChangedFile> {
         let mut diff_options = DiffOptions::default();

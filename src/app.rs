@@ -1,13 +1,16 @@
 use crate::code_repo::{ChangedFile, CodeRepo};
 use crate::event::DebouncedEvent;
+use crate::util::path_filter::PathFilter;
+
 use git2::Delta;
-use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 pub struct App {
-    pub should_quit: bool,
     repo: CodeRepo,
+    path_filter: PathFilter,
+
+    pub should_quit: bool,
     pub changed_files: Vec<ChangedFile>,
 }
 
@@ -27,32 +30,48 @@ fn sort_changed_files(files: &Vec<ChangedFile>) -> Vec<ChangedFile> {
 }
 
 impl App {
-    pub fn new(repo: CodeRepo, branch_name: &str) -> App {
+    pub fn new(repo: CodeRepo, branch_name: &str, path_filter: PathFilter) -> App {
         let mut r = repo;
-        let changed_files = sort_changed_files(&r.changed_files(branch_name));
+        // let changed_files = sort_changed_files(&r.changed_files(branch_name));
 
-        App {
-            should_quit: false,
+        let mut app = App {
             repo: r,
-            changed_files,
+            path_filter,
+            should_quit: false,
+            changed_files: vec![],
+        };
+
+        for file in app.repo.changed_files(branch_name) {
+            let path = file.path.to_owned();
+            dbg!(&path);
+            app.add_changed_file(path, file.status);
         }
+
+        app
     }
 
     fn prefix(&self) -> PathBuf {
         self.repo.path().unwrap()
     }
 
+    fn is_relevant_file(&self, path: &Path) -> bool {
+        self.path_filter.include_path(path) && path.exists() && path.is_file()
+    }
+
     fn add_changed_file(&mut self, p: PathBuf, delta: Delta) -> anyhow::Result<&Self> {
-        self.remove_changed_file(&p);
+        self.remove_changed_file(&p)?;
 
         let path = p.strip_prefix(self.prefix())?;
-        let changed_file = ChangedFile {
-            path: path.to_path_buf(),
-            status: delta,
-        };
 
-        self.changed_files.push(changed_file);
-        self.changed_files = sort_changed_files(&self.changed_files);
+        if self.is_relevant_file(path) {
+            let changed_file = ChangedFile {
+                path: path.to_path_buf(),
+                status: delta,
+            };
+
+            self.changed_files.push(changed_file);
+            self.changed_files = sort_changed_files(&self.changed_files);
+        }
 
         Ok(self)
     }

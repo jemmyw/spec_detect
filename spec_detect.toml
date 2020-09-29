@@ -1,1 +1,2 @@
+use_bundler = true
 include = ["src/**/*.rs", "test/specs.rb"]

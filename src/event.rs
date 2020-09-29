@@ -1,10 +1,6 @@
 use std::io;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::{
-    atomic::{AtomicBool, AtomicI32, Ordering},
-    Arc,
-};
 use std::thread;
 use std::time::Duration;
 
@@ -25,46 +21,17 @@ pub enum Event<I, F> {
 /// type is handled in its own thread and returned to a common `Receiver`
 pub struct Events {
     rx: mpsc::Receiver<Event<Key, watcher::DebouncedEvent>>,
-    input_handle: thread::JoinHandle<()>,
-    tick_handle: thread::JoinHandle<()>,
-    watcher_handle: (Watcher, thread::JoinHandle<()>),
-}
-
-#[derive(Debug)]
-pub struct Config {
-    pub exit_key: Key,
-    pub tick_rate: Duration,
-    pub paths: Vec<String>,
-}
-
-impl Default for Config {
-    fn default() -> Config {
-        Config {
-            exit_key: Key::Char('q'),
-            tick_rate: Duration::from_millis(1000),
-            paths: vec![String::from(".")],
-        }
-    }
-}
-
-impl Clone for Config {
-    fn clone(&self) -> Config {
-        Config {
-            exit_key: self.exit_key.clone(),
-            tick_rate: self.tick_rate.clone(),
-            paths: self.paths.clone(),
-        }
-    }
+    _input_handle: thread::JoinHandle<()>,
+    _tick_handle: thread::JoinHandle<()>,
+    _watcher_handle: (Watcher, thread::JoinHandle<()>),
 }
 
 impl Events {
-    pub fn new() -> Events {
-        Events::with_config(Config::default())
-    }
+    pub fn new() -> anyhow::Result<Events> {
+        let tick_rate = Duration::from_millis(1000);
 
-    pub fn with_config(config: Config) -> Events {
         let (tx, rx) = mpsc::channel();
-        let input_handle = {
+        let _input_handle = {
             let tx = tx.clone();
             thread::spawn(move || {
                 let stdin = io::stdin();
@@ -78,23 +45,21 @@ impl Events {
                 }
             })
         };
-        let tick_rate = config.tick_rate.to_owned();
-        let tick_handle = {
+
+        let _tick_handle = {
             let tx = tx.clone();
             thread::spawn(move || loop {
-                tx.send(Event::Tick).unwrap();
+                if let Err(_) = tx.send(Event::Tick) {
+                    return;
+                }
                 thread::sleep(tick_rate);
             })
         };
 
-        let watcher_handle = {
-            let paths = config.paths;
-            let paths_iter = paths.iter().map(|p| PathBuf::from(p));
-            let paths_vec = paths_iter.collect::<Vec<PathBuf>>();
-
+        let _watcher_handle = {
             let tx = tx.clone();
             let (w_tx, w_rx) = mpsc::channel();
-            let watcher = Watcher::new(w_tx, paths_vec.as_slice(), 0).unwrap();
+            let watcher = Watcher::new(w_tx, &[PathBuf::from(".")], 0).unwrap();
             let thread_handle = thread::spawn(move || loop {
                 match w_rx.recv() {
                     Ok(event) => tx.send(Event::File(event)).expect("could not send event"),
@@ -105,12 +70,12 @@ impl Events {
             (watcher, thread_handle)
         };
 
-        Events {
+        Ok(Events {
             rx,
-            input_handle,
-            tick_handle,
-            watcher_handle,
-        }
+            _input_handle,
+            _tick_handle,
+            _watcher_handle,
+        })
     }
 
     pub fn next(&self) -> Result<Event<Key, watcher::DebouncedEvent>, mpsc::RecvError> {

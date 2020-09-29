@@ -1,13 +1,17 @@
+#![feature(const_fn)]
+
 mod app;
 mod code_repo;
 mod event;
 mod ruby;
 mod ui;
+mod util;
 
 use app::App;
 use code_repo::CodeRepo;
-use event::{Config, Event, Events};
+use event::{Event, Events};
 use ruby::RSpec;
+use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
 use std::io;
@@ -18,7 +22,37 @@ use termion::raw::IntoRawMode;
 use tui::backend::TermionBackend;
 use tui::Terminal;
 
+use state::LocalStorage;
+
+use config::Config;
+
+#[derive(Clone)]
+pub struct Configuration {
+    pub include: Vec<String>,
+}
+static CONFIG: LocalStorage<Configuration> = LocalStorage::new();
+
+fn read_configuration() -> Result<Configuration> {
+    let mut config = Config::default();
+    config.set_default("include", vec!["."])?;
+    config.set_default("tick_rate", 250)?;
+    config.merge(config::File::with_name("spec_detect"))?;
+
+    let include = config.get_array("include")?;
+    let paths = include
+        .iter()
+        .map(|v| v.clone().into_str())
+        .collect::<Result<Vec<String>, _>>()?;
+
+    Ok(Configuration { include: paths })
+}
+
 fn main() -> Result<()> {
+    let config = read_configuration()?;
+    let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
+
+    CONFIG.set(move || config.to_owned());
+
     let stdout = io::stdout()
         .into_raw_mode()
         .context("Could not open stdout")?;
@@ -27,11 +61,8 @@ fn main() -> Result<()> {
     terminal.clear().context("Could not clear the terminal")?;
 
     let repo = CodeRepo::open(".").context("Could not open git repository in .")?;
-
-    let mut config = Config::default();
-    config.paths = vec!["src".to_owned()];
-    let events = Events::with_config(config);
-    let mut app = App::new(repo, "master");
+    let events = Events::new()?;
+    let mut app = App::new(repo, "master", path_filter);
 
     loop {
         terminal
