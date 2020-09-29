@@ -2,7 +2,6 @@ use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Result;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -56,7 +55,11 @@ impl RSpec {
         RSpec { config }
     }
 
-    pub fn run<T: AsRef<str>>(&self, locations: Vec<T>) -> anyhow::Result<Vec<RSpecEvent>> {
+    pub fn run<T: AsRef<str>>(
+        &self,
+        locations: Vec<T>,
+        tx: std::sync::mpsc::Sender<Result<RSpecEvent, anyhow::Error>>,
+    ) -> anyhow::Result<()> {
         let ref_locations: Vec<&str> = locations.iter().map(|t| t.as_ref()).collect();
         let config = &self.config;
         let use_bundler = config.use_bundler;
@@ -87,29 +90,29 @@ impl RSpec {
             .stdout(Stdio::piped())
             .spawn()?;
 
-        let mut results: Vec<RSpecEvent> = Vec::new();
         {
             let stdout = cmd.stdout.as_mut().unwrap();
-            let stdout_reader = BufReader::new(stdout);
-            let stdout_lines = stdout_reader.lines();
+            let mut stdout_reader = BufReader::with_capacity(10, stdout);
 
-            for line in stdout_lines {
-                match line {
-                    Ok(line) => match serde_json::from_str::<RSpecEvent>(&line) {
-                        Ok(event) => {
-                            results.push(event);
-                        }
-                        Err(e) => {
-                            return Err(anyhow::Error::from(e));
-                        }
-                    },
-                    _ => {}
-                }
+            loop {
+                let mut buf = String::new();
+                let line = stdout_reader.read_line(&mut buf);
+
+                match line.map_err(anyhow::Error::from).and_then(|_u| {
+                    let event =
+                        serde_json::from_str::<RSpecEvent>(&buf).map_err(anyhow::Error::from);
+                    tx.send(event).map_err(anyhow::Error::from)
+                }) {
+                    Ok(_) => {}
+                    Err(_) => break,
+                };
             }
+
+            drop(tx);
         }
 
         cmd.wait()?;
 
-        Ok(results)
+        Ok(())
     }
 }

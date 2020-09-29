@@ -10,6 +10,7 @@ class RustRspecFormatter
 
   def dump_notification(type, notification = {})
     @output.puts({ type: type }.merge(notification.to_h).to_json)
+    @output.flush
   end
 
   def start(notification)
