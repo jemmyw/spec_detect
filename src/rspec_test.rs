@@ -7,10 +7,17 @@ fn main() -> anyhow::Result<()> {
     let mut config = RSpecConfiguration::default();
     config.use_bundler = true;
 
-    let (tx, rx) = channel::<anyhow::Result<RSpecEvent>>();
+    let (tx, rx) = channel::<RSpecEvent>();
 
     let jh = thread::spawn(move || loop {
-        let event = rx.recv().unwrap().unwrap();
+        let event_result = rx.recv();
+
+        if event_result.is_err() {
+            println!("oh no an error on rx");
+            break;
+        }
+
+        let event = event_result.unwrap();
 
         match event {
             RSpecEvent::Start { count } => println!("Specs started"),
@@ -42,14 +49,21 @@ fn main() -> anyhow::Result<()> {
             }
             RSpecEvent::Stop {} => {
                 println!("Done");
+            }
+            RSpecEvent::Exit => {
+                println!("Exit");
                 break;
+            }
+            RSpecEvent::Error { msg } => {
+                println!("RSpec error {}", msg);
             }
         }
     });
 
     let rspec = RSpec::new(config);
     let locations = vec!["test/example_specs.rb"];
-    rspec.run(locations, tx.clone())?;
+    let mut run = rspec.run(locations, tx.clone())?;
+
     jh.join().unwrap();
 
     Ok(())

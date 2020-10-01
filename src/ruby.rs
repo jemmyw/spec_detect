@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::thread;
 
 use serde::{Deserialize, Serialize};
 
@@ -30,8 +31,13 @@ pub enum RSpecEvent {
         exception: Option<String>,
     },
     Stop {},
+    Error {
+        msg: String,
+    },
+    Exit,
 }
 
+#[derive(Clone)]
 pub struct RSpecConfiguration {
     pub path_to_rspec: String,
     pub use_bundler: bool,
@@ -46,22 +52,40 @@ impl Default for RSpecConfiguration {
     }
 }
 
+pub struct RSpecRun {
+    handle: std::thread::JoinHandle<()>,
+    cmd: std::process::Child,
+}
+
+impl RSpecRun {
+    pub fn wait(self) -> anyhow::Result<()> {
+        self.handle
+            .join()
+            .map_err(|_e| anyhow::Error::msg("rspec wait error"))
+    }
+
+    pub fn kill(&mut self) -> anyhow::Result<()> {
+        self.cmd.kill().map_err(anyhow::Error::from)
+    }
+}
+
 pub struct RSpec {
     config: RSpecConfiguration,
+    run: Option<RSpecRun>,
 }
 
 impl RSpec {
     pub fn new(config: RSpecConfiguration) -> Self {
-        RSpec { config }
+        RSpec { config, run: None }
     }
 
     pub fn run<T: AsRef<str>>(
         &self,
         locations: Vec<T>,
-        tx: std::sync::mpsc::Sender<Result<RSpecEvent, anyhow::Error>>,
-    ) -> anyhow::Result<()> {
+        tx: std::sync::mpsc::Sender<RSpecEvent>,
+    ) -> anyhow::Result<RSpecRun> {
         let ref_locations: Vec<&str> = locations.iter().map(|t| t.as_ref()).collect();
-        let config = &self.config;
+        let config = &self.config.clone();
         let use_bundler = config.use_bundler;
 
         let program = match use_bundler {
@@ -88,31 +112,53 @@ impl RSpec {
             .args(args_with_locations)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .spawn()?;
+            .spawn()
+            .unwrap();
 
-        {
-            let stdout = cmd.stdout.as_mut().unwrap();
+        let stdout = cmd.stdout.take().unwrap();
+        #[allow(unused_must_use)]
+        let handle = thread::spawn(move || {
             let mut stdout_reader = BufReader::with_capacity(10, stdout);
 
             loop {
                 let mut buf = String::new();
                 let line = stdout_reader.read_line(&mut buf);
 
-                match line.map_err(anyhow::Error::from).and_then(|_u| {
-                    let event =
-                        serde_json::from_str::<RSpecEvent>(&buf).map_err(anyhow::Error::from);
-                    tx.send(event).map_err(anyhow::Error::from)
-                }) {
-                    Ok(_) => {}
-                    Err(_) => break,
-                };
+                match line {
+                    Err(err) => {
+                        tx.send(RSpecEvent::Error {
+                            msg: err.to_string(),
+                        });
+                        break;
+                    }
+                    Ok(usize) if usize == 0 => {
+                        break;
+                    }
+                    Ok(_usize) => {
+                        let deser = serde_json::from_str::<RSpecEvent>(&buf);
+
+                        if deser.is_err() {
+                            let err = deser.err().unwrap();
+                            tx.send(RSpecEvent::Error {
+                                msg: err.to_string(),
+                            });
+                            break;
+                        }
+
+                        let event = deser.unwrap();
+                        let res = tx.send(event);
+
+                        if res.is_err() {
+                            break;
+                        }
+                    }
+                }
             }
 
+            tx.send(RSpecEvent::Exit);
             drop(tx);
-        }
+        });
 
-        cmd.wait()?;
-
-        Ok(())
+        Ok(RSpecRun { handle, cmd })
     }
 }
