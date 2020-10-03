@@ -59,8 +59,7 @@ impl CodeRepo {
     //     self.all_files_ending("_spec.rb")
     // }
 
-    pub fn changed_files(&mut self, branch_name: &str) -> Vec<ChangedFile> {
-        let mut diff_options = DiffOptions::default();
+    pub fn new_files(&self) -> Vec<ChangedFile> {
         let mut status_options = StatusOptions::default();
         status_options.include_untracked(true);
 
@@ -75,6 +74,14 @@ impl CodeRepo {
             _ => None,
         });
 
+        from_status.collect()
+    }
+
+    pub fn changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {
+        let mut diff_options = DiffOptions::default();
+
+        let r = &self.repo;
+
         let diff = r
             .find_branch(branch_name, BranchType::Local)
             .map(|m| m.into_reference())
@@ -82,21 +89,28 @@ impl CodeRepo {
             .and_then(|t| r.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
             .unwrap();
 
-        let from_diff = diff.deltas().filter_map(|delta| {
-            let status = delta.status();
+        diff.deltas()
+            .filter_map(|delta| {
+                let status = delta.status();
 
-            match status {
-                Delta::Deleted => None,
-                Delta::Unmodified => None,
-                Delta::Ignored => None,
-                Delta::Unreadable => None,
-                _ => delta.new_file().path().map(|p| ChangedFile {
-                    path: p.to_path_buf(),
-                    status,
-                }),
-            }
-        });
+                match status {
+                    Delta::Deleted => None,
+                    Delta::Unmodified => None,
+                    Delta::Ignored => None,
+                    Delta::Unreadable => None,
+                    _ => delta.new_file().path().map(|p| ChangedFile {
+                        path: p.to_path_buf(),
+                        status,
+                    }),
+                }
+            })
+            .collect()
+    }
 
-        from_status.chain(from_diff).collect::<Vec<ChangedFile>>()
+    pub fn all_changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {
+        self.new_files()
+            .into_iter()
+            .chain(self.changed_files(branch_name).into_iter())
+            .collect()
     }
 }

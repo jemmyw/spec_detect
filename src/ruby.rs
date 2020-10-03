@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -37,10 +38,11 @@ pub enum RSpecEvent {
     Exit,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RSpecConfiguration {
     pub path_to_rspec: String,
     pub use_bundler: bool,
+    pub env: HashMap<String, String>,
 }
 
 impl Default for RSpecConfiguration {
@@ -48,6 +50,7 @@ impl Default for RSpecConfiguration {
         RSpecConfiguration {
             path_to_rspec: String::from("rspec"),
             use_bundler: false,
+            env: HashMap::new(),
         }
     }
 }
@@ -71,12 +74,11 @@ impl RSpecRun {
 
 pub struct RSpec {
     config: RSpecConfiguration,
-    run: Option<RSpecRun>,
 }
 
 impl RSpec {
     pub fn new(config: RSpecConfiguration) -> Self {
-        RSpec { config, run: None }
+        RSpec { config }
     }
 
     pub fn run<T: AsRef<str>>(
@@ -110,6 +112,7 @@ impl RSpec {
 
         let mut cmd = Command::new(program)
             .args(args_with_locations)
+            .envs(&config.env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()

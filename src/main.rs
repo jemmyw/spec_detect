@@ -1,16 +1,18 @@
 #![feature(const_fn)]
 
 mod app;
-mod code_repo;
+mod configuration;
 mod event;
+mod repo_watcher;
 mod ruby;
 mod ui;
 mod util;
 
 use app::App;
-use code_repo::CodeRepo;
+use configuration::Configuration;
 use event::{Event, Events};
-use ruby::RSpec;
+use repo_watcher::CodeRepo;
+use ruby::{RSpec, RSpecConfiguration};
 use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
@@ -24,31 +26,10 @@ use tui::Terminal;
 
 use state::LocalStorage;
 
-use config::Config;
-
-#[derive(Clone)]
-pub struct Configuration {
-    pub include: Vec<String>,
-}
 static CONFIG: LocalStorage<Configuration> = LocalStorage::new();
 
-fn read_configuration() -> Result<Configuration> {
-    let mut config = Config::default();
-    config.set_default("include", vec!["."])?;
-    config.set_default("tick_rate", 250)?;
-    config.merge(config::File::with_name("spec_detect"))?;
-
-    let include = config.get_array("include")?;
-    let paths = include
-        .iter()
-        .map(|v| v.clone().into_str())
-        .collect::<Result<Vec<String>, _>>()?;
-
-    Ok(Configuration { include: paths })
-}
-
 fn main() -> Result<()> {
-    let config = read_configuration()?;
+    let config = Configuration::read_configuration()?;
     let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
 
     CONFIG.set(move || config.to_owned());

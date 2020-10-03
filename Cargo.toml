@@ -21,7 +21,7 @@ crossterm = "*"
 tui = "*"
 termion = "*"
 anyhow = "1.0"
-config = "0.9"
+config = "0.10.1"
 state = { version = "0.2", features = ["tls"] }
 globber = "0.1"
 serde_json = "1.0"

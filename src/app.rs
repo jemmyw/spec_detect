@@ -1,5 +1,5 @@
-use crate::code_repo::{ChangedFile, CodeRepo};
 use crate::event::DebouncedEvent;
+use crate::repo_watcher::{ChangedFile, CodeRepo};
 use crate::util::path_filter::PathFilter;
 
 use git2::Delta;

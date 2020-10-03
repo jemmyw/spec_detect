@@ -62,7 +62,9 @@ fn main() -> anyhow::Result<()> {
 
     let rspec = RSpec::new(config);
     let locations = vec!["test/example_specs.rb"];
-    let mut run = rspec.run(locations, tx.clone())?;
+
+    let run = rspec.run(locations, tx.clone())?;
+    run.wait()?;
 
     jh.join().unwrap();
 

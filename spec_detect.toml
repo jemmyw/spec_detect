@@ -1,2 +1,7 @@
-use_bundler = true
 include = ["src/**/*.rs", "test/specs.rb"]
+
+[rspec]
+use_bundler = true
+
+[rspec.env]
+SKIP_RCOV = 1
