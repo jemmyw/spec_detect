@@ -8,10 +8,11 @@ use code_repo::CodeRepo;
 use owning_ref::MutexGuardRef;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::Duration;
+use tokio::sync::watch;
 
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 
@@ -29,27 +30,27 @@ impl RepoWatcher {
         })
     }
 
-    pub fn watch<D: AsRef<Duration>>(
+    pub fn watch(
         &self,
-        poll_duration: D,
+        poll_duration: Duration,
         current_changes: bool,
-        tx: Sender<Vec<ChangedFile>>,
-    ) -> Result<JoinHandle<()>> {
-        let poll_duration = poll_duration.as_ref().to_owned();
+    ) -> watch::Receiver<Vec<ChangedFile>> {
+        let poll_duration = poll_duration.to_owned();
         let repo = Arc::clone(&self.repo);
         let branch = self.branch.clone();
+        let (tx, rx) = watch::channel(vec![]);
 
-        let jh = thread::spawn(move || {
+        thread::spawn(move || {
             let watch = RepoWatch {
                 repo,
                 branch,
                 poll_duration,
                 tx,
             };
-            watch.watch_loop(current_changes);
+            watch.watch_loop(current_changes).unwrap();
         });
 
-        Ok(jh)
+        rx
     }
 }
 
@@ -57,7 +58,7 @@ pub struct RepoWatch {
     repo: Arc<Mutex<CodeRepo>>,
     branch: String,
     poll_duration: Duration,
-    tx: Sender<Vec<ChangedFile>>,
+    tx: watch::Sender<Vec<ChangedFile>>,
 }
 
 impl RepoWatch {
@@ -71,7 +72,7 @@ impl RepoWatch {
     }
 
     fn watch_loop(&self, current_changes: bool) -> Result<()> {
-        let (w_tx, w_rx) = channel::<DebouncedEvent>();
+        let (w_tx, w_rx) = mpsc::channel::<DebouncedEvent>();
         let mut seen_files: BTreeSet<ChangedFile> = BTreeSet::new();
         let mut prefix: PathBuf = PathBuf::new();
 
@@ -79,17 +80,19 @@ impl RepoWatch {
             prefix = r.path().unwrap();
 
             for file in r.all_changed_files(&self.branch).into_iter() {
+                dbg!(&file);
                 seen_files.insert(file);
             }
-        });
+        })?;
 
         if current_changes {
-            self.tx.send(seen_files.clone().into_iter().collect())?;
+            self.tx
+                .broadcast(seen_files.clone().into_iter().collect())?;
         }
 
-        let watcher = watcher(w_tx, Duration::from_millis(100)).unwrap();
-        for file in seen_files {
-            watcher.watch(file.path, RecursiveMode::NonRecursive);
+        let mut watcher = watcher(w_tx, Duration::from_millis(100)).unwrap();
+        for file in seen_files.iter() {
+            watcher.watch(file.path.to_owned(), RecursiveMode::NonRecursive)?;
         }
 
         loop {
@@ -100,20 +103,20 @@ impl RepoWatch {
                     )],
                     _ => vec![],
                 },
-                Err(e) => {
+                Err(_) => {
                     let mut new_files: BTreeSet<ChangedFile> = BTreeSet::new();
 
                     self.checkout_repo(|r| {
                         for file in r.new_files().into_iter() {
                             new_files.insert(file);
                         }
-                    });
+                    })?;
 
                     let new_files: Vec<ChangedFile> =
                         new_files.difference(&seen_files).cloned().collect();
 
-                    for file in new_files {
-                        watcher.watch(file.path, RecursiveMode::NonRecursive);
+                    for file in new_files.clone() {
+                        watcher.watch(file.path.clone(), RecursiveMode::NonRecursive)?;
                         seen_files.insert(file);
                     }
 
@@ -122,7 +125,7 @@ impl RepoWatch {
             };
 
             if !inform_files.is_empty() {
-                self.tx.send(inform_files)?;
+                self.tx.broadcast(inform_files)?;
             }
         }
     }

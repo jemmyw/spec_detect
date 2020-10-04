@@ -41,7 +41,10 @@ impl App {
     pub fn on_file_event(&mut self, event: Vec<ChangedFile>) -> anyhow::Result<()> {
         let mut set: BTreeSet<ChangedFile> = BTreeSet::new();
 
-        for file in event.into_iter().chain(self.changed_files.into_iter()) {
+        for file in event
+            .into_iter()
+            .chain(self.changed_files.clone().into_iter())
+        {
             set.insert(file);
         }
 
