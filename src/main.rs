@@ -11,7 +11,7 @@ mod util;
 use app::App;
 use configuration::Configuration;
 use event::{Event, Events};
-use repo_watcher::CodeRepo;
+use repo_watcher::RepoWatcher;
 use ruby::{RSpec, RSpecConfiguration};
 use util::path_filter::PathFilter;
 
@@ -41,9 +41,9 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
     terminal.clear().context("Could not clear the terminal")?;
 
-    let repo = CodeRepo::open(".").context("Could not open git repository in .")?;
+    let watcher = RepoWatcher::new(".", "master");
     let events = Events::new()?;
-    let mut app = App::new(repo, "master", path_filter);
+    let mut app = App::new(path_filter);
 
     loop {
         terminal

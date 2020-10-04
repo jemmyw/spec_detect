@@ -1,116 +1,129 @@
-use git2::{BranchType, Delta, DiffOptions, Repository, Status, StatusOptions};
-// use std::ffi::CString;
+mod changed_file;
+mod code_repo;
+
+use anyhow::Result;
+pub use changed_file::ChangedFile;
+
+use code_repo::CodeRepo;
+use owning_ref::MutexGuardRef;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
-#[derive(Clone, Debug)]
-pub struct ChangedFile {
-    pub path: PathBuf,
-    pub status: Delta,
+use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
+
+pub struct RepoWatcher {
+    repo: Arc<Mutex<CodeRepo>>,
+    branch: String,
 }
 
-pub struct CodeRepo {
-    repo: Repository,
-}
-
-impl CodeRepo {
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<CodeRepo, git2::Error> {
-        let repo = Repository::open(path);
-
-        match repo {
-            Ok(repo) => Ok(CodeRepo { repo }),
-            Err(e) => Err(e),
-        }
+impl RepoWatcher {
+    pub fn new<P: AsRef<Path>, S: AsRef<str>>(path: P, branch: S) -> Result<Self> {
+        let repo = CodeRepo::open(path)?;
+        Ok(Self {
+            repo: Arc::new(Mutex::new(repo)),
+            branch: branch.as_ref().to_owned(),
+        })
     }
 
-    pub fn path(&self) -> Option<PathBuf> {
-        self.repo
-            .path()
-            .canonicalize()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-    }
+    pub fn watch<D: AsRef<Duration>>(
+        &self,
+        poll_duration: D,
+        current_changes: bool,
+        tx: Sender<Vec<ChangedFile>>,
+    ) -> Result<JoinHandle<()>> {
+        let poll_duration = poll_duration.as_ref().to_owned();
+        let repo = Arc::clone(&self.repo);
+        let branch = self.branch.clone();
 
-    // pub fn all_files(&mut self) -> Vec<String> {
-    //     let index = self.repo.index().unwrap();
-    //     index
-    //         .iter()
-    //         .map(|f| {
-    //             CString::new(&f.path[..])
-    //                 .unwrap()
-    //                 .to_str()
-    //                 .map(String::from)
-    //                 .unwrap()
-    //         })
-    //         .collect()
-    // }
-
-    // pub fn all_files_ending(&mut self, ending: &str) -> Vec<String> {
-    //     self.all_files()
-    //         .into_iter()
-    //         .filter(|s| s.ends_with(ending))
-    //         .collect()
-    // }
-
-    // pub fn all_ruby_files(&mut self) -> Vec<String> {
-    //     self.all_files_ending(".rb")
-    // }
-
-    // pub fn all_spec_files(&mut self) -> Vec<String> {
-    //     self.all_files_ending("_spec.rb")
-    // }
-
-    pub fn new_files(&self) -> Vec<ChangedFile> {
-        let mut status_options = StatusOptions::default();
-        status_options.include_untracked(true);
-
-        let r = &self.repo;
-
-        let statuses = r.statuses(Some(&mut status_options)).unwrap();
-        let from_status = statuses.iter().filter_map(|s| match s.status() {
-            Status::WT_NEW => s.path().map(|p| ChangedFile {
-                path: PathBuf::from(p),
-                status: Delta::Added,
-            }),
-            _ => None,
+        let jh = thread::spawn(move || {
+            let watch = RepoWatch {
+                repo,
+                branch,
+                poll_duration,
+                tx,
+            };
+            watch.watch_loop(current_changes);
         });
 
-        from_status.collect()
+        Ok(jh)
+    }
+}
+
+pub struct RepoWatch {
+    repo: Arc<Mutex<CodeRepo>>,
+    branch: String,
+    poll_duration: Duration,
+    tx: Sender<Vec<ChangedFile>>,
+}
+
+impl RepoWatch {
+    fn checkout_repo<F>(&self, f: F) -> Result<()>
+    where
+        F: FnOnce(&CodeRepo) -> (),
+    {
+        let repo = MutexGuardRef::new(self.repo.lock().unwrap());
+        f(repo.as_ref());
+        Ok(())
     }
 
-    pub fn changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {
-        let mut diff_options = DiffOptions::default();
+    fn watch_loop(&self, current_changes: bool) -> Result<()> {
+        let (w_tx, w_rx) = channel::<DebouncedEvent>();
+        let mut seen_files: BTreeSet<ChangedFile> = BTreeSet::new();
+        let mut prefix: PathBuf = PathBuf::new();
 
-        let r = &self.repo;
+        self.checkout_repo(|r| {
+            prefix = r.path().unwrap();
 
-        let diff = r
-            .find_branch(branch_name, BranchType::Local)
-            .map(|m| m.into_reference())
-            .and_then(|r| r.peel_to_tree())
-            .and_then(|t| r.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
-            .unwrap();
+            for file in r.all_changed_files(&self.branch).into_iter() {
+                seen_files.insert(file);
+            }
+        });
 
-        diff.deltas()
-            .filter_map(|delta| {
-                let status = delta.status();
+        if current_changes {
+            self.tx.send(seen_files.clone().into_iter().collect())?;
+        }
 
-                match status {
-                    Delta::Deleted => None,
-                    Delta::Unmodified => None,
-                    Delta::Ignored => None,
-                    Delta::Unreadable => None,
-                    _ => delta.new_file().path().map(|p| ChangedFile {
-                        path: p.to_path_buf(),
-                        status,
-                    }),
+        let watcher = watcher(w_tx, Duration::from_millis(100)).unwrap();
+        for file in seen_files {
+            watcher.watch(file.path, RecursiveMode::NonRecursive);
+        }
+
+        loop {
+            let inform_files = match w_rx.recv_timeout(self.poll_duration) {
+                Ok(event) => match event {
+                    DebouncedEvent::Write(path) => vec![ChangedFile::new(
+                        path.strip_prefix(&prefix).unwrap().to_owned(),
+                    )],
+                    _ => vec![],
+                },
+                Err(e) => {
+                    let mut new_files: BTreeSet<ChangedFile> = BTreeSet::new();
+
+                    self.checkout_repo(|r| {
+                        for file in r.new_files().into_iter() {
+                            new_files.insert(file);
+                        }
+                    });
+
+                    let new_files: Vec<ChangedFile> =
+                        new_files.difference(&seen_files).cloned().collect();
+
+                    for file in new_files {
+                        watcher.watch(file.path, RecursiveMode::NonRecursive);
+                        seen_files.insert(file);
+                    }
+
+                    new_files
                 }
-            })
-            .collect()
-    }
+            };
 
-    pub fn all_changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {
-        self.new_files()
-            .into_iter()
-            .chain(self.changed_files(branch_name).into_iter())
-            .collect()
+            if !inform_files.is_empty() {
+                self.tx.send(inform_files)?;
+            }
+        }
     }
 }
