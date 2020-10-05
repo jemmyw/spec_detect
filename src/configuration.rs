@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Configuration {
+    pub branch: String,
     pub include: Vec<String>,
     pub rspec: RSpecConfiguration,
 }
@@ -11,6 +12,7 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Configuration {
+            branch: String::from("master"),
             include: vec![],
             rspec: RSpecConfiguration::default(),
         }

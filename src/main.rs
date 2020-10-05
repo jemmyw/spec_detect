@@ -10,14 +10,14 @@ mod util;
 
 use app::App;
 use configuration::Configuration;
-use repo_watcher::RepoWatcher;
+use repo_watcher::{ChangedFile, RepoWatcher};
 // use ruby::{RSpec, RSpecConfiguration};
 use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
 use std::io;
 use std::time::Duration;
-use tokio;
+use tokio::{self, stream::StreamExt};
 
 use termion::event::Key;
 use termion::raw::IntoRawMode;
@@ -43,13 +43,19 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
     terminal.clear().context("Could not clear the terminal")?;
 
-    let watcher = RepoWatcher::new(".", "master")?;
-    let mut watch_rx = watcher.watch(Duration::from_millis(250), true);
-    dbg!(watch_rx.recv().await.unwrap());
-    let mut input_rx = input::listen();
-    input_rx.recv().await.unwrap();
+    let watcher = RepoWatcher::new(".", CONFIG.get().branch.as_str())?;
+    let watch_rx = watcher
+        .watch(Duration::from_millis(250), true)
+        .map(|files| {
+            files
+                .into_iter()
+                .filter(|f| path_filter.include_path(&f.path))
+                .collect::<Vec<ChangedFile>>()
+        });
+    tokio::pin!(watch_rx);
 
-    let mut app = App::new(path_filter);
+    let mut input_rx = input::listen();
+    let mut app = App::new();
 
     loop {
         dbg!("before draw");
@@ -58,8 +64,9 @@ async fn main() -> Result<()> {
             .context("Error while updating UI")?;
 
         tokio::select! {
-            files = watch_rx.recv() => {
+            files = watch_rx.next() => {
                 let files = files.unwrap();
+                app.on_file_event(files)?;
             }
             key = input_rx.recv() => {
                 let key = key.unwrap();
@@ -71,8 +78,6 @@ async fn main() -> Result<()> {
                     }
                     _ => {}
                 }
-
-
             }
         }
 

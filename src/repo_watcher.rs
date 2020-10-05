@@ -4,6 +4,7 @@ mod code_repo;
 use anyhow::Result;
 pub use changed_file::ChangedFile;
 
+use crate::util::path_sort;
 use code_repo::CodeRepo;
 use owning_ref::MutexGuardRef;
 use std::collections::BTreeSet;
@@ -75,19 +76,21 @@ impl RepoWatch {
         let (w_tx, w_rx) = mpsc::channel::<DebouncedEvent>();
         let mut seen_files: BTreeSet<ChangedFile> = BTreeSet::new();
         let mut prefix: PathBuf = PathBuf::new();
+        let mut first_changed_files = vec![];
 
         self.checkout_repo(|r| {
             prefix = r.path().unwrap();
-
-            for file in r.all_changed_files(&self.branch).into_iter() {
-                dbg!(&file);
-                seen_files.insert(file);
-            }
+            first_changed_files = r.all_changed_files(&self.branch);
         })?;
 
+        first_changed_files.sort_unstable_by(|a, b| path_sort::mtime_comparator(&a.path, &b.path));
+
         if current_changes {
-            self.tx
-                .broadcast(seen_files.clone().into_iter().collect())?;
+            self.tx.broadcast(first_changed_files.clone())?;
+        }
+
+        for file in first_changed_files.into_iter() {
+            seen_files.insert(file);
         }
 
         let mut watcher = watcher(w_tx, Duration::from_millis(100)).unwrap();
