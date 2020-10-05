@@ -17,7 +17,6 @@ impl App {
 
     pub fn on_file_event(&mut self, event: Vec<ChangedFile>) -> anyhow::Result<()> {
         self.last_changed_files = event.clone();
-        dbg!(&self.last_changed_files);
 
         self.changed_files = event
             .into_iter()
@@ -28,8 +27,6 @@ impl App {
                     .filter(|f| !self.last_changed_files.contains(f)),
             )
             .collect();
-
-        dbg!(&self.changed_files);
 
         Ok(())
     }
