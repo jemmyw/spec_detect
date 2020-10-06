@@ -89,7 +89,7 @@ impl CodeRepo {
             .find_branch(branch_name, BranchType::Local)
             .map(|m| m.into_reference())
             .and_then(|r| r.peel_to_tree())
-            .and_then(|t| r.diff_tree_to_workdir(Some(&t), Some(&mut diff_options)))
+            .and_then(|t| r.diff_tree_to_workdir_with_index(Some(&t), Some(&mut diff_options)))
             .unwrap();
 
         diff.deltas()
