@@ -7,7 +7,7 @@ use termion::event::Key;
 use termion::input::TermRead;
 
 pub fn listen() -> Receiver<Key> {
-    let (mut tx, mut rx) = watch::channel(Key::Null);
+    let (tx, rx) = watch::channel(Key::Null);
     let _input_handle = {
         thread::spawn(move || {
             let stdin = io::stdin();

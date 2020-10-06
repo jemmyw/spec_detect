@@ -14,7 +14,7 @@ pub fn mtime_comparator(a: &PathBuf, b: &PathBuf) -> Ordering {
         .map_or(Ordering::Greater, |(a, b)| b.cmp(&a))
 }
 
-pub fn sort_by_mtime(files: &Vec<PathBuf>) -> Vec<PathBuf> {
+pub fn sort_by_mtime(files: &[PathBuf]) -> Vec<PathBuf> {
     let mut unsorted = files.to_vec();
     unsorted.sort_by(mtime_comparator);
     unsorted

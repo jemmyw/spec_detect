@@ -66,10 +66,18 @@ impl CodeRepo {
                 path: PathBuf::from(p),
                 status: Delta::Added,
             }),
+            Status::INDEX_NEW => s.path().map(|p| ChangedFile {
+                path: PathBuf::from(p),
+                status: Delta::Added,
+            }),
             _ => None,
         });
 
-        from_status.collect()
+        let new_files: Vec<ChangedFile> = from_status.collect();
+        dbg!("new files");
+        dbg!(&new_files);
+
+        new_files
     }
 
     pub fn changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {

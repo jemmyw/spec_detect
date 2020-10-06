@@ -5,6 +5,7 @@ mod configuration;
 mod input;
 mod repo_watcher;
 mod ruby;
+mod test_runner;
 mod ui;
 mod util;
 
@@ -45,7 +46,7 @@ async fn main() -> Result<()> {
 
     let watcher = RepoWatcher::new(".", CONFIG.get().branch.as_str())?;
     let watch_rx = watcher
-        .watch(Duration::from_millis(250), true)
+        .watch(Duration::from_millis(1000), true)
         .map(|files| {
             files
                 .into_iter()
@@ -71,12 +72,9 @@ async fn main() -> Result<()> {
             key = input_rx.recv() => {
                 let key = key.unwrap();
 
-                match key {
-                    Key::Char('q') => {
-                        dbg!("quit");
-                        app.on_quit();
-                    }
-                    _ => {}
+                if let Key::Char('q') = key {
+                    dbg!("quit");
+                    app.on_quit();
                 }
             }
         }

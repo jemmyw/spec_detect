@@ -1,4 +1,4 @@
-use crate::ruby::RSpecConfiguration;
+use crate::ruby::rspec::RSpecConfiguration;
 use config::{Config, ConfigError};
 use serde::{Deserialize, Serialize};
 

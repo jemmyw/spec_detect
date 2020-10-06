@@ -1,5 +1,5 @@
 mod ruby;
-use ruby::{RSpec, RSpecConfiguration, RSpecEvent};
+use ruby::rspec::{RSpec, RSpecConfiguration, RSpecEvent};
 use std::sync::mpsc::channel;
 use std::thread;
 
@@ -20,30 +20,30 @@ fn main() -> anyhow::Result<()> {
         let event = event_result.unwrap();
 
         match event {
-            RSpecEvent::Start { count } => println!("Specs started"),
+            RSpecEvent::Start { count: _ } => println!("Specs started"),
             RSpecEvent::ExampleStarted {
-                id,
-                location,
-                description,
+                id: _,
+                location: _,
+                description: _,
             } => {
                 println!("Example started");
             }
             RSpecEvent::ExamplePassed {
-                id,
-                load_time,
-                location,
-                description,
-                run_time,
+                id: _,
+                load_time: _,
+                location: _,
+                description: _,
+                run_time: _,
             } => {
                 println!("Example passed");
             }
             RSpecEvent::ExampleFailed {
-                id,
-                load_time,
-                location,
-                description,
-                run_time,
-                exception,
+                id: _,
+                load_time: _,
+                location: _,
+                description: _,
+                run_time: _,
+                exception: _,
             } => {
                 println!("Example failed");
             }
@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
     let rspec = RSpec::new(config);
     let locations = vec!["test/example_specs.rb"];
 
-    let run = rspec.run(locations, tx.clone())?;
+    let run = rspec.run(locations, tx)?;
     run.wait()?;
 
     jh.join().unwrap();

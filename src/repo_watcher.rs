@@ -65,7 +65,7 @@ pub struct RepoWatch {
 impl RepoWatch {
     fn checkout_repo<F>(&self, f: F) -> Result<()>
     where
-        F: FnOnce(&CodeRepo) -> (),
+        F: FnOnce(&CodeRepo),
     {
         let repo = MutexGuardRef::new(self.repo.lock().unwrap());
         f(repo.as_ref());
@@ -84,6 +84,7 @@ impl RepoWatch {
         })?;
 
         first_changed_files.sort_unstable_by(|a, b| path_sort::mtime_comparator(&a.path, &b.path));
+        dbg!(&first_changed_files);
 
         if current_changes {
             self.tx.broadcast(first_changed_files.clone())?;
