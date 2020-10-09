@@ -1,8 +1,10 @@
 #![feature(const_fn)]
 
 mod app;
+mod cli;
 mod configuration;
 mod input;
+mod program;
 mod repo_watcher;
 mod ruby;
 mod test_runner;
@@ -18,7 +20,10 @@ use util::path_filter::PathFilter;
 use anyhow::{Context, Result};
 use std::io;
 use std::time::Duration;
-use tokio::{self, stream::StreamExt};
+use tokio::{
+    self,
+    stream::{Stream, StreamExt},
+};
 
 use termion::event::Key;
 use termion::raw::IntoRawMode;
@@ -30,12 +35,9 @@ use state::LocalStorage;
 
 static CONFIG: LocalStorage<Configuration> = LocalStorage::new();
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let config = Configuration::read_configuration()?;
-    let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
-
-    CONFIG.set(move || config.to_owned());
+async fn run_tui(mut app: App, watch_rx: impl Stream<Item = Vec<ChangedFile>>) -> Result<()> {
+    tokio::pin!(watch_rx);
+    let mut input_rx = input::listen();
 
     let stdout = io::stdout()
         .into_raw_mode()
@@ -43,20 +45,6 @@ async fn main() -> Result<()> {
     let backend = TermionBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
     terminal.clear().context("Could not clear the terminal")?;
-
-    let watcher = RepoWatcher::new(".", CONFIG.get().branch.as_str())?;
-    let watch_rx = watcher
-        .watch(Duration::from_millis(1000), true)
-        .map(|files| {
-            files
-                .into_iter()
-                .filter(|f| path_filter.include_path(&f.path))
-                .collect::<Vec<ChangedFile>>()
-        });
-    tokio::pin!(watch_rx);
-
-    let mut input_rx = input::listen();
-    let mut app = App::new();
 
     loop {
         dbg!("before draw");
@@ -87,4 +75,27 @@ async fn main() -> Result<()> {
     terminal.clear().ok();
 
     Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let config = Configuration::read_configuration()?;
+    let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
+
+    CONFIG.set(move || config.to_owned());
+
+    let watcher = RepoWatcher::new(".", CONFIG.get().branch.as_str())?;
+    let watch_rx = watcher
+        .watch(Duration::from_millis(1000), true)
+        .map(|files| {
+            files
+                .into_iter()
+                .filter(|f| path_filter.include_path(&f.path))
+                .collect::<Vec<ChangedFile>>()
+        });
+    tokio::pin!(watch_rx);
+
+    let app = App::new();
+
+    run_tui(app, watch_rx).await
 }
