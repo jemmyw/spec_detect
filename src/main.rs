@@ -10,6 +10,7 @@ mod input;
 mod program;
 mod repo_watcher;
 mod ruby;
+mod some_loop;
 mod test_runner;
 mod ui;
 mod util;
@@ -72,19 +73,37 @@ async fn main() -> Result<()> {
     let mut files_dispatcher = state_manager.dispatcher();
     tokio::spawn(async move {
         tokio::pin!(changed_files_stream);
-        loop {
-            match changed_files_stream.next().await {
-                Some(files) => {
-                    files_dispatcher
-                        .send(Event::FilesChanged(files))
-                        .await
-                        .unwrap();
+
+        some_loop!(files = changed_files_stream.next() => {
+            files_dispatcher
+                .send(Event::FilesChanged(files))
+                .await
+                .unwrap();
+        });
+    });
+
+    let state_stream = state_manager.stream();
+    tokio::spawn(async move {
+        tokio::pin!(state_stream);
+
+        some_loop!((event, app_state) = state_stream.next() => {
+            match event {
+                Event::FilesChanged(files) => {
+                    dbg!("files!");
+                    dbg!(files);
                 }
-                None => {
-                    break;
-                }
+                _ => {}
             }
-        }
+        });
+
+        // loop {
+        //     match state_stream.next().await {
+        //         None => {
+        //             break;
+        //         }
+        //         Some((event, app_state)) => match event {},
+        //     }
+        // }
     });
 
     let program = program_from_opt(&opt);
