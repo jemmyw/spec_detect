@@ -1,5 +1,16 @@
-use crate::App;
+use crate::app_state::{AppState, AppStateManager, Event};
+use crate::input;
+use crate::program::Program;
 use crate::ChangedFile;
+
+use anyhow::{Context, Result};
+use async_trait::async_trait;
+use std::io;
+use termion::event::Key;
+use termion::raw::IntoRawMode;
+use tokio::stream::{Stream, StreamExt};
+use tui::backend::TermionBackend;
+use tui::Terminal;
 use tui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -41,12 +52,12 @@ fn changed_file_text(file: &ChangedFile, running: bool) -> Spans {
     ])
 }
 
-pub fn draw<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+pub fn draw<B: Backend>(f: &mut Frame<B>, state: &AppState) {
     // let chunks = Layout::default()
     //     .constraints([Constraint::Length(1), Constraint::Min(0)].as_ref())
     //     .split(f.size());
 
-    let files: Vec<ListItem> = app
+    let files: Vec<ListItem> = state
         .changed_files
         .iter()
         .map(|c| ListItem::new(changed_file_text(c, true)))
@@ -61,4 +72,53 @@ pub fn draw<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     );
 
     f.render_widget(list, f.size())
+}
+
+pub struct TuiApp {}
+
+#[async_trait]
+impl Program for TuiApp {
+    async fn run<'stream>(&self, app: AppStateManager) -> Result<()> {
+        let state_stream = app.stream();
+        tokio::pin!(state_stream);
+
+        let mut input_rx = input::listen();
+
+        let stdout = io::stdout()
+            .into_raw_mode()
+            .context("Could not open stdout")?;
+        let backend = TermionBackend::new(stdout);
+        let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
+        terminal.clear().context("Could not clear the terminal")?;
+
+        loop {
+            tokio::select! {
+                app_state = state_stream.next() => {
+                    match app_state {
+                        Some((_, app_state)) => {
+                            if app_state.should_quit {
+                                break;
+                            }
+                            terminal
+                                .draw(|f| draw(f, &app_state))
+                                .context("Error while updating UI")?;
+                        },
+                        None => {break;}
+                    }
+                }
+                key = input_rx.recv() => {
+                    let key = key.unwrap();
+
+                    if let Key::Char('q') = key {
+                        dbg!("quit");
+                        app.dispatch(Event::Quit).await?;
+                    }
+                }
+            }
+        }
+
+        terminal.clear().ok();
+
+        Ok(())
+    }
 }

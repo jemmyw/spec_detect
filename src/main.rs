@@ -1,6 +1,8 @@
 #![feature(const_fn)]
 
-mod app;
+extern crate tokio;
+
+mod app_state;
 mod cli;
 mod configuration;
 mod input;
@@ -11,71 +13,20 @@ mod test_runner;
 mod ui;
 mod util;
 
-use app::App;
+use app_state::{AppStateManager, Event};
 use configuration::Configuration;
 use repo_watcher::{ChangedFile, RepoWatcher};
 // use ruby::{RSpec, RSpecConfiguration};
 use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
-use std::io;
+use program::Program;
 use std::time::Duration;
-use tokio::{
-    self,
-    stream::{Stream, StreamExt},
-};
-
-use termion::event::Key;
-use termion::raw::IntoRawMode;
-
-use tui::backend::TermionBackend;
-use tui::Terminal;
+use tokio::stream::StreamExt;
 
 use state::LocalStorage;
 
 static CONFIG: LocalStorage<Configuration> = LocalStorage::new();
-
-async fn run_tui(mut app: App, watch_rx: impl Stream<Item = Vec<ChangedFile>>) -> Result<()> {
-    tokio::pin!(watch_rx);
-    let mut input_rx = input::listen();
-
-    let stdout = io::stdout()
-        .into_raw_mode()
-        .context("Could not open stdout")?;
-    let backend = TermionBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).context("Could not create a terminal")?;
-    terminal.clear().context("Could not clear the terminal")?;
-
-    loop {
-        dbg!("before draw");
-        terminal
-            .draw(|f| ui::draw(f, &mut app))
-            .context("Error while updating UI")?;
-
-        tokio::select! {
-            files = watch_rx.next() => {
-                let files = files.unwrap();
-                app.on_file_event(files)?;
-            }
-            key = input_rx.recv() => {
-                let key = key.unwrap();
-
-                if let Key::Char('q') = key {
-                    dbg!("quit");
-                    app.on_quit();
-                }
-            }
-        }
-
-        if app.should_quit {
-            break;
-        }
-    }
-
-    terminal.clear().ok();
-
-    Ok(())
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -87,15 +38,40 @@ async fn main() -> Result<()> {
     let watcher = RepoWatcher::new(".", CONFIG.get().branch.as_str())?;
     let watch_rx = watcher
         .watch(Duration::from_millis(1000), true)
-        .map(|files| {
+        .map(move |files| {
             files
                 .into_iter()
                 .filter(|f| path_filter.include_path(&f.path))
                 .collect::<Vec<ChangedFile>>()
         });
-    tokio::pin!(watch_rx);
 
-    let app = App::new();
+    let state_manager = AppStateManager::new();
 
-    run_tui(app, watch_rx).await
+    let mut ctrl_c_dispatcher = state_manager.dispatcher();
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        ctrl_c_dispatcher.send(app_state::Event::Quit).await
+    });
+
+    let mut files_dispatcher = state_manager.dispatcher();
+    tokio::spawn(async move {
+        tokio::pin!(watch_rx);
+        loop {
+            match watch_rx.next().await {
+                Some(files) => {
+                    files_dispatcher
+                        .send(Event::FilesChanged(files))
+                        .await
+                        .unwrap();
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+    });
+
+    // let program = ui::TuiApp {};
+    let program = cli::CliApp {};
+    program.run(state_manager).await
 }

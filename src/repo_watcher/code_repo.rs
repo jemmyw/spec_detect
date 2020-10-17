@@ -1,7 +1,14 @@
-use git2::{BranchType, Delta, DiffOptions, Repository, Status, StatusOptions};
+use git2::{BranchType, Delta, DiffOptions, Repository, Status, StatusEntry, StatusOptions};
 // use std::ffi::CString;
 use crate::repo_watcher::ChangedFile;
 use std::path::{Path, PathBuf};
+
+fn status_to_changed_file(status: StatusEntry, delta: Delta) -> Option<ChangedFile> {
+    status.path().map(|p| ChangedFile {
+        path: PathBuf::from(p),
+        status: delta,
+    })
+}
 
 pub struct CodeRepo {
     repo: Repository,
@@ -25,35 +32,6 @@ impl CodeRepo {
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
     }
 
-    // pub fn all_files(&mut self) -> Vec<String> {
-    //     let index = self.repo.index().unwrap();
-    //     index
-    //         .iter()
-    //         .map(|f| {
-    //             CString::new(&f.path[..])
-    //                 .unwrap()
-    //                 .to_str()
-    //                 .map(String::from)
-    //                 .unwrap()
-    //         })
-    //         .collect()
-    // }
-
-    // pub fn all_files_ending(&mut self, ending: &str) -> Vec<String> {
-    //     self.all_files()
-    //         .into_iter()
-    //         .filter(|s| s.ends_with(ending))
-    //         .collect()
-    // }
-
-    // pub fn all_ruby_files(&mut self) -> Vec<String> {
-    //     self.all_files_ending(".rb")
-    // }
-
-    // pub fn all_spec_files(&mut self) -> Vec<String> {
-    //     self.all_files_ending("_spec.rb")
-    // }
-
     pub fn new_files(&self) -> Vec<ChangedFile> {
         let mut status_options = StatusOptions::default();
         status_options.include_untracked(true);
@@ -62,20 +40,13 @@ impl CodeRepo {
 
         let statuses = r.statuses(Some(&mut status_options)).unwrap();
         let from_status = statuses.iter().filter_map(|s| match s.status() {
-            Status::WT_NEW => s.path().map(|p| ChangedFile {
-                path: PathBuf::from(p),
-                status: Delta::Added,
-            }),
-            Status::INDEX_NEW => s.path().map(|p| ChangedFile {
-                path: PathBuf::from(p),
-                status: Delta::Added,
-            }),
+            Status::WT_NEW => status_to_changed_file(s, Delta::Added),
+            Status::INDEX_NEW => status_to_changed_file(s, Delta::Added),
+            Status::WT_MODIFIED => status_to_changed_file(s, Delta::Modified),
             _ => None,
         });
 
         let new_files: Vec<ChangedFile> = from_status.collect();
-        dbg!("new files");
-        dbg!(&new_files);
 
         new_files
     }
@@ -111,9 +82,13 @@ impl CodeRepo {
     }
 
     pub fn all_changed_files(&self, branch_name: &str) -> Vec<ChangedFile> {
-        self.new_files()
+        let mut files = self
+            .new_files()
             .into_iter()
             .chain(self.changed_files(branch_name).into_iter())
-            .collect()
+            .collect::<Vec<ChangedFile>>();
+        files.sort_unstable();
+        files.dedup();
+        return files;
     }
 }
