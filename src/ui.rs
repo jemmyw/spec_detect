@@ -110,7 +110,6 @@ impl Program for TuiApp {
                     let key = key.unwrap();
 
                     if let Key::Char('q') = key {
-                        dbg!("quit");
                         app.dispatch(Event::Quit).await?;
                     }
                 }
