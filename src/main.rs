@@ -57,6 +57,7 @@ fn program_from_opt(opt: &program::Opt) -> Box<dyn Program> {
 async fn main() -> Result<()> {
     let opt = program::Opt::from_args();
     let config = Configuration::read_configuration()?;
+    dbg!(&config);
     let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
 
     CONFIG.set(move || config.to_owned());
@@ -95,15 +96,6 @@ async fn main() -> Result<()> {
                 _ => {}
             }
         });
-
-        // loop {
-        //     match state_stream.next().await {
-        //         None => {
-        //             break;
-        //         }
-        //         Some((event, app_state)) => match event {},
-        //     }
-        // }
     });
 
     let program = program_from_opt(&opt);

@@ -1,12 +1,14 @@
 use crate::ruby::rspec::RSpecConfiguration;
 use config::{Config, ConfigError};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Configuration {
     pub branch: String,
     pub include: Vec<String>,
     pub rspec: RSpecConfiguration,
+    pub map: HashMap<String, Vec<(String, String)>>,
 }
 
 impl Default for Configuration {
@@ -15,6 +17,7 @@ impl Default for Configuration {
             branch: String::from("master"),
             include: vec![],
             rspec: RSpecConfiguration::default(),
+            map: HashMap::new(),
         }
     }
 }

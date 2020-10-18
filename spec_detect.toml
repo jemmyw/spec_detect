@@ -1,7 +1,11 @@
-include = ["src/**/*.rs", "test/specs.rb"]
+include = ["test/*.rb", "test/**/*.rb", "test/specs.rb"]
+
+[map]
+rspec = [
+  ["test/(.+)_spec.rb", "test/$1_rspec.rb"],
+  ["test/.*.rb", "test/specs.rb"],
+]
 
 [rspec]
+env = {SKIP_RCOV = 1}
 use_bundler = true
-
-[rspec.env]
-SKIP_RCOV = 1
