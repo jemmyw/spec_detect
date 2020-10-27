@@ -931,6 +931,7 @@ dependencies = [
  "globber",
  "notify",
  "owning_ref",
+ "regex",
  "serde 1.0.116",
  "serde_json",
  "state",

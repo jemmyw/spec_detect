@@ -19,6 +19,7 @@ use app_state::{AppStateManager, Event};
 use configuration::Configuration;
 use repo_watcher::{ChangedFile, RepoWatcher};
 // use ruby::{RSpec, RSpecConfiguration};
+use test_runner::{TestEvent, TestRunner};
 use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
@@ -57,13 +58,13 @@ fn program_from_opt(opt: &program::Opt) -> Box<dyn Program> {
 async fn main() -> Result<()> {
     let opt = program::Opt::from_args();
     let config = Configuration::read_configuration()?;
-    dbg!(&config);
     let path_filter = PathFilter::new(&config).context("Invalid include configuration")?;
 
     CONFIG.set(move || config.to_owned());
 
     let changed_files_stream = watch_repo(CONFIG.get().branch.as_str(), path_filter)?;
     let state_manager = AppStateManager::new();
+    let mut test_runner = TestRunner::new();
 
     let mut ctrl_c_dispatcher = state_manager.dispatcher();
     tokio::spawn(async move {
@@ -72,28 +73,36 @@ async fn main() -> Result<()> {
     });
 
     let mut files_dispatcher = state_manager.dispatcher();
+    let mut test_files_dispatcher = test_runner.dispatcher();
     tokio::spawn(async move {
         tokio::pin!(changed_files_stream);
 
         some_loop!(files = changed_files_stream.next() => {
             files_dispatcher
-                .send(Event::FilesChanged(files))
+                .send(Event::FilesChanged(files.clone()))
                 .await
                 .unwrap();
+            test_files_dispatcher.send(files).await.unwrap();
         });
     });
 
-    let state_stream = state_manager.stream();
+    let test_dispatcher = state_manager.dispatcher();
+    let test_event_stream = test_runner.run()?;
     tokio::spawn(async move {
-        tokio::pin!(state_stream);
+        tokio::pin!(test_event_stream);
 
-        some_loop!((event, app_state) = state_stream.next() => {
+        some_loop!(event = test_event_stream.next() => {
             match event {
-                Event::FilesChanged(files) => {
-                    dbg!("files!");
-                    dbg!(files);
+                TestEvent::TestRunning(group) => {
+
                 }
-                _ => {}
+                TestEvent::TestProgress(progress) => {
+
+                }
+                TestEvent::TestPassed(progress) => {
+
+                }
+                TestEvent::TestFailed(progress) => {}
             }
         });
     });

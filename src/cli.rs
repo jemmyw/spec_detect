@@ -17,7 +17,7 @@ impl Program for CliApp {
                 Event::FilesChanged(files) => {
                     println!("{:?}", files);
                     println!("So I reckon the following have now changed:");
-                    println!("{:?}", app_state.changed_files);
+                    println!("{:?}", app_state.watched_files);
                 },
                 _ => {}
             }
