@@ -1,3 +1,9 @@
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    rc::Rc,
+};
+
 use crate::test_runner::TestEvent;
 use crate::ChangedFile;
 use crate::CONFIG;
@@ -45,8 +51,15 @@ fn pattern_matches(pattern: &Regex, result_string: &String, input: &String) -> O
     }
 }
 
+fn test_files_for_file(test_map: &Vec<(Regex, String)>, file: String) -> Vec<String> {
+    test_map
+        .iter()
+        .filter_map(|(r, s)| pattern_matches(r, s, &file))
+        .collect()
+}
+
 impl TestRun {
-    pub fn run(
+    pub fn run<'a>(
         changed_files: Vec<ChangedFile>,
         tx: mpsc::Sender<TestEvent>,
     ) -> anyhow::Result<Self> {
@@ -56,12 +69,37 @@ impl TestRun {
             .get("rspec")
             .ok_or_else(|| anyhow!("No rspec in test mappings"))?
             .into_iter()
-            .map(|(pat_string, res_string)| Regex::new(pat_string).map(|r| (r, res_string)))
+            .map(|(pat_string, res_string)| Regex::new(pat_string).map(|r| (r, res_string.clone())))
             .collect::<Result<Vec<_>, _>>()
-            .context("Invalid regex in test map")?
-            .into_iter();
+            .context("Invalid regex in test map")?;
 
-        // changed_files.iter().map(|cf| for (p, r) in test_map {});
+        let mut globs: Vec<Rc<String>> = vec![];
+        let mut glob_map: HashMap<Rc<String>, Vec<&ChangedFile>> =
+            HashMap::with_capacity(changed_files.len());
+        let mut seen_globs: HashSet<Rc<String>> = HashSet::with_capacity(globs.len());
+
+        for cf in changed_files.iter() {
+            let path_string = cf.path.to_string_lossy().to_string();
+            for test_file_glob in test_files_for_file(&test_map, path_string) {
+                let test_file_glob = Rc::new(test_file_glob);
+                seen_globs.insert(Rc::clone(&test_file_glob));
+
+                match glob_map.get_mut(&test_file_glob) {
+                    Some(changed_files) => {
+                        changed_files.push(cf);
+                    }
+                    None => {
+                        glob_map.insert(Rc::clone(&test_file_glob), vec![&cf]);
+                    }
+                }
+
+                globs.push(Rc::clone(&test_file_glob));
+            }
+        }
+
+        let mut test_files: Vec<Rc<PathBuf>> = vec![];
+        let mut test_file_map: HashMap<Rc<PathBuf>, Vec<&ChangedFile>> =
+            HashMap::with_capacity(glob_map.len());
 
         Ok(Self { changed_files, tx })
     }
@@ -107,5 +145,38 @@ mod tests {
             pattern_matches(&pattern, &result_string, &"app/user.rb".to_string()),
             None
         );
+    }
+
+    #[test]
+    fn test_test_files_for_file() {
+        let test_map = vec![
+            (
+                Regex::new(r"app/(.+?)/(.+?).rb").unwrap(),
+                "test/$1/$2_spec.rb".to_string(),
+            ),
+            (
+                Regex::new(r"app/models/(.+?).rb").unwrap(),
+                "test/*/*$1*_spec.rb".to_string(),
+            ),
+            (
+                Regex::new("lib/(.+?).rb").unwrap(),
+                "test/lib/$1.rb".to_string(),
+            ),
+        ];
+
+        assert_eq!(
+            test_files_for_file(&test_map, "app/controllers/users_controller.rb".to_string()),
+            vec!["test/controllers/users_controller_spec.rb".to_string()]
+        );
+
+        assert_eq!(
+            test_files_for_file(&test_map, "app/models/user.rb".to_string()),
+            vec!["test/models/user_spec.rb", "test/*/*user*_spec.rb"]
+        );
+
+        assert_eq!(
+            test_files_for_file(&test_map, "lib/simple.rb".to_string()),
+            vec!["test/lib/simple.rb"]
+        )
     }
 }
