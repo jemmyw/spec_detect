@@ -929,6 +929,7 @@ dependencies = [
  "crossterm",
  "git2",
  "globber",
+ "lazy_static",
  "notify",
  "owning_ref",
  "regex",

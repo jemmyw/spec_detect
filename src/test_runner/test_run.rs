@@ -2,6 +2,7 @@ use crate::test_runner::TestEvent;
 use crate::ChangedFile;
 use crate::CONFIG;
 use anyhow::{anyhow, Context};
+use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::mpsc;
 
@@ -10,11 +11,14 @@ pub struct TestRun {
     tx: mpsc::Sender<TestEvent>,
 }
 
+lazy_static! {
+    static ref NUM_PATTERN: Regex = Regex::new(r"[^\\](\$(?P<num>\d+))").unwrap();
+}
+
 fn replace_matches(result_string: &String, matches: Vec<Option<&str>>) -> String {
     let mut output = result_string.clone();
-    let r = Regex::new(r"[^\\](\$(?P<num>\d+))").unwrap();
 
-    for m in r.captures_iter(result_string) {
+    for m in NUM_PATTERN.captures_iter(result_string) {
         if let Some(group) = m.get(1) {
             let n = m.name("num").unwrap().as_str().parse::<usize>().unwrap();
             assert!(n > 0);
