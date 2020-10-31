@@ -1,7 +1,7 @@
 use git2::Delta;
 // use std::ffi::CString;
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Eq)]
 pub struct ChangedFile {
@@ -28,9 +28,9 @@ impl PartialEq for ChangedFile {
 }
 
 impl ChangedFile {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
         ChangedFile {
-            path,
+            path: path.as_ref().to_path_buf(),
             status: Delta::Modified,
         }
     }

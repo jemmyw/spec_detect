@@ -101,9 +101,9 @@ impl RepoWatch {
         loop {
             let inform_files = match w_rx.recv_timeout(self.poll_duration) {
                 Ok(event) => match event {
-                    DebouncedEvent::Write(path) => vec![ChangedFile::new(
-                        path.strip_prefix(&prefix).unwrap().to_owned(),
-                    )],
+                    DebouncedEvent::Write(path) => {
+                        vec![ChangedFile::new(path.strip_prefix(&prefix).unwrap())]
+                    }
                     _ => vec![],
                 },
                 Err(_) => {
