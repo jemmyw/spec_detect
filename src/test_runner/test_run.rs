@@ -2,17 +2,28 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
+    time::Instant,
 };
 
-use crate::test_runner::TestEvent;
+use crate::test_runner::{
+    test_file_run::{TestExample, TestFileRun},
+    TestEvent,
+};
 use crate::ChangedFile;
 use crate::CONFIG;
+use crate::{
+    ruby::rspec::{RSpec, RSpecEvent, RSpecRun},
+    test_runner::test_file_run::TestSuite,
+};
+
 use anyhow::{anyhow, Context};
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::mpsc::channel;
 use tokio::sync::mpsc;
 
 pub struct TestRun {
+    pub rspec_run: RSpecRun,
     tx: mpsc::Sender<TestEvent>,
 }
 
@@ -79,8 +90,8 @@ fn test_globs_for_file(test_map: &Vec<(Regex, String)>, file: String) -> Vec<Str
 }
 
 struct Group<T> {
-    list: Vec<Rc<T>>,
-    map: HashMap<Rc<T>, Vec<ChangedFile>>,
+    list: Vec<T>,
+    map: HashMap<T, Vec<ChangedFile>>,
 }
 impl<T> Group<T> {
     fn len(&self) -> usize {
@@ -112,15 +123,13 @@ fn grouped_globs(
                     changed_files.push(cf.clone());
                 }
                 None => {
-                    group
-                        .map
-                        .insert(Rc::clone(&test_file_glob), vec![cf.clone()]);
+                    group.map.insert(test_file_glob, vec![cf.clone()]);
                 }
             }
 
             if !seen_globs.contains(&test_file_glob) {
-                seen_globs.insert(Rc::clone(&test_file_glob));
-                group.list.push(Rc::clone(&test_file_glob));
+                seen_globs.insert(test_file_glob);
+                group.list.push(test_file_glob);
             }
         }
     }
@@ -166,7 +175,7 @@ fn grouped_files(globs: Group<String>) -> Group<PathBuf> {
 }
 
 impl TestRun {
-    pub fn run<'a>(
+    pub fn run(
         changed_files: Vec<ChangedFile>,
         tx: mpsc::Sender<TestEvent>,
     ) -> anyhow::Result<Self> {
@@ -183,10 +192,93 @@ impl TestRun {
         let glob_groups = grouped_globs(&test_map, changed_files);
         let file_groups = grouped_files(glob_groups);
 
-        Ok(Self { tx })
+        let config = CONFIG.get().rspec.clone();
+        let rspec = RSpec::new(config);
+        let locations = file_groups
+            .list
+            .iter()
+            .filter_map(|f| f.as_os_str().to_str())
+            .collect();
+        let (rtx, rrx) = channel::<RSpecEvent>();
+
+        std::thread::spawn(move || loop {
+            let mut last_event: Option<RSpecEvent> = None;
+            let event = rrx.recv().unwrap();
+
+            let mut suite = TestSuite {
+                started_at: Instant::now(),
+                finished_at: None,
+                test_file_runs: vec![],
+                example_count: 0,
+            };
+            let mut current_file: Option<TestFileRun> = None;
+            let mut current_example: Option<TestExample> = None;
+
+            match event.clone() {
+                RSpecEvent::Start { count } => {
+                    if let Some(count) = count {
+                        suite.example_count = count as u64;
+                    }
+                }
+                RSpecEvent::ExampleStarted {
+                    file_path: new_file_path,
+                    ..
+                } => match current_file {
+                    None => {
+                        let files_tested = file_groups
+                            .map
+                            .get(&new_file_path)
+                            .unwrap_or_else(|| &vec![])
+                            .iter()
+                            .map(|f| f.path.clone())
+                            .collect();
+
+                        current_file = Some(TestFileRun {
+                            files_tested,
+                            test_file: new_file_path,
+                            started_at: Instant::now(),
+                            finished_at: None,
+                            examples: vec![],
+                        });
+                    }
+                },
+                RSpecEvent::ExamplePassed {
+                    id,
+                    load_time,
+                    location,
+                    file_path,
+                    description,
+                    run_time,
+                } => {}
+                RSpecEvent::ExampleFailed {
+                    id,
+                    load_time,
+                    location,
+                    file_path,
+                    description,
+                    run_time,
+                    exception,
+                } => {}
+                RSpecEvent::Stop {} => {}
+                RSpecEvent::Error { msg } => {
+                    break;
+                }
+                RSpecEvent::Exit => {
+                    break;
+                }
+            }
+
+            last_event = Some(event);
+        });
+
+        let rspec_run = rspec.run(locations, rtx)?;
+
+        Ok(Self { tx, rspec_run })
     }
 
-    pub fn cancel(&self) {}
+    pub fn cancel(&mut self) -> anyhow::Result<()> {
+        self.rspec_run.kill()
+    }
 }
 
 #[cfg(test)]

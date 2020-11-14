@@ -1,7 +1,8 @@
+mod test_file_run;
 mod test_run;
 
 use crate::ChangedFile;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 use test_run::TestRun;
 use tokio::sync::mpsc;
 
@@ -19,12 +20,10 @@ pub struct TestGroup {
 
 #[derive(Debug, Clone)]
 pub struct TestProgress {
-    group: TestGroup,
-    test_files_passed: Vec<PathBuf>,
-    test_files_failed: Vec<PathBuf>,
-    test_count: u64,
-    test_passed: u64,
-    test_failed: u64,
+    file_being_tested: ChangedFile,
+    test_file: String,
+    suite_start: Instant,
+    file_start: Instant,
 }
 
 #[derive(Debug, Clone)]

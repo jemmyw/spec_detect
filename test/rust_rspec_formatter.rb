@@ -25,6 +25,7 @@ class RustRspecFormatter
     dump_notification("example_started", {
       id: notification.example.id,
       location: notification.example.location,
+      file_path: notification.example.file_path,
       description: notification.example.full_description,
     })
   end
@@ -33,6 +34,7 @@ class RustRspecFormatter
     dump_notification("example_passed", {
       id: notification.example.id,
       location: notification.example.location,
+      file_path: notification.example.file_path,
       description: notification.example.full_description,
       run_time: notification.example.execution_result.run_time
     })
@@ -42,6 +44,7 @@ class RustRspecFormatter
     dump_notification("example_failed", {
       id: notification.example.id,
       location: notification.example.location,
+      file_path: notification.example.file_path,
       description: notification.example.full_description,
       run_time: notification.example.execution_result.run_time,
       exception: notification.example.execution_result.exception.to_s,

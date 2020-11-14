@@ -21,30 +21,13 @@ fn main() -> anyhow::Result<()> {
 
         match event {
             RSpecEvent::Start { count: _ } => println!("Specs started"),
-            RSpecEvent::ExampleStarted {
-                id: _,
-                location: _,
-                description: _,
-            } => {
+            RSpecEvent::ExampleStarted { .. } => {
                 println!("Example started");
             }
-            RSpecEvent::ExamplePassed {
-                id: _,
-                load_time: _,
-                location: _,
-                description: _,
-                run_time: _,
-            } => {
+            RSpecEvent::ExamplePassed { .. } => {
                 println!("Example passed");
             }
-            RSpecEvent::ExampleFailed {
-                id: _,
-                load_time: _,
-                location: _,
-                description: _,
-                run_time: _,
-                exception: _,
-            } => {
+            RSpecEvent::ExampleFailed { .. } => {
                 println!("Example failed");
             }
             RSpecEvent::Stop {} => {

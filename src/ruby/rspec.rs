@@ -14,12 +14,14 @@ pub enum RSpecEvent {
     ExampleStarted {
         id: String,
         location: String,
+        file_path: String,
         description: Option<String>,
     },
     ExamplePassed {
         id: String,
         load_time: Option<f64>,
         location: String,
+        file_path: String,
         description: String,
         run_time: f64,
     },
@@ -27,6 +29,7 @@ pub enum RSpecEvent {
         id: String,
         load_time: Option<f64>,
         location: Option<String>,
+        file_path: String,
         description: Option<String>,
         run_time: f64,
         exception: Option<String>,
