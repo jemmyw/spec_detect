@@ -20,7 +20,6 @@ pub struct WatchedFile {
 #[derive(Debug, Clone)]
 pub struct TestFile {
     pub test_file: PathBuf,
-    pub changed_files: Vec<ChangedFile>,
 }
 
 #[derive(Debug, Clone)]

@@ -19,7 +19,7 @@ use app_state::{AppStateManager, Event};
 use configuration::Configuration;
 use repo_watcher::{ChangedFile, RepoWatcher};
 // use ruby::{RSpec, RSpecConfiguration};
-use test_runner::{TestEvent, TestRunner};
+use test_runner::TestRunner;
 use util::path_filter::PathFilter;
 
 use anyhow::{Context, Result};
@@ -93,16 +93,7 @@ async fn main() -> Result<()> {
 
         some_loop!(event = test_event_stream.next() => {
             match event {
-                TestEvent::TestRunning(group) => {
 
-                }
-                TestEvent::TestProgress(progress) => {
-
-                }
-                TestEvent::TestPassed(progress) => {
-
-                }
-                TestEvent::TestFailed(progress) => {}
             }
         });
     });

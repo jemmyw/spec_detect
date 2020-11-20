@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::thread;
+use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,14 +14,14 @@ pub enum RSpecEvent {
     ExampleStarted {
         id: String,
         location: String,
-        file_path: String,
+        file_path: PathBuf,
         description: Option<String>,
     },
     ExamplePassed {
         id: String,
         load_time: Option<f64>,
         location: String,
-        file_path: String,
+        file_path: PathBuf,
         description: String,
         run_time: f64,
     },
@@ -29,7 +29,7 @@ pub enum RSpecEvent {
         id: String,
         load_time: Option<f64>,
         location: Option<String>,
-        file_path: String,
+        file_path: PathBuf,
         description: Option<String>,
         run_time: f64,
         exception: Option<String>,

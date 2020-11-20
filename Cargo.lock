@@ -184,6 +184,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "evmap"
+version = "10.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e3ea06a83f97d3dc2eb06e51e7a729b418f0717a5558a5c870e3d5156dc558d"
+dependencies = [
+ "hashbag",
+ "slab",
+ "smallvec",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -268,6 +279,12 @@ name = "globber"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ba3176f968ba5d1ea6120b5a8a252d820b1116c6646827556e51471492a942"
+
+[[package]]
+name = "hashbag"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9be661681f30f8ef0f5bd6a2bff28b16cbcffc0e1b79d18558b74d5e1817fbb"
 
 [[package]]
 name = "heck"
@@ -933,6 +950,7 @@ dependencies = [
  "config",
  "crossbeam-channel",
  "crossterm",
+ "evmap",
  "git2",
  "glob",
  "globber",
