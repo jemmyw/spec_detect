@@ -13,7 +13,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tokio::sync::watch;
+use tokio::sync::broadcast;
 
 use notify::{watcher, DebouncedEvent, RecursiveMode, Watcher};
 
@@ -35,11 +35,11 @@ impl RepoWatcher {
         &self,
         poll_duration: Duration,
         current_changes: bool,
-    ) -> watch::Receiver<Vec<ChangedFile>> {
+    ) -> broadcast::Receiver<Vec<ChangedFile>> {
         let poll_duration = poll_duration.to_owned();
         let repo = Arc::clone(&self.repo);
         let branch = self.branch.clone();
-        let (tx, rx) = watch::channel(vec![]);
+        let (tx, rx) = broadcast::channel(1);
 
         thread::spawn(move || {
             let watch = RepoWatch {
@@ -59,7 +59,7 @@ pub struct RepoWatch {
     repo: Arc<Mutex<CodeRepo>>,
     branch: String,
     poll_duration: Duration,
-    tx: watch::Sender<Vec<ChangedFile>>,
+    tx: broadcast::Sender<Vec<ChangedFile>>,
 }
 
 impl RepoWatch {
@@ -86,7 +86,7 @@ impl RepoWatch {
         first_changed_files.sort_unstable_by(|a, b| path_sort::mtime_comparator(&a.path, &b.path));
 
         if current_changes {
-            self.tx.broadcast(first_changed_files.clone())?;
+            self.tx.send(first_changed_files.clone())?;
         }
 
         for file in first_changed_files.into_iter() {
@@ -128,7 +128,7 @@ impl RepoWatch {
             };
 
             if !inform_files.is_empty() {
-                self.tx.broadcast(inform_files)?;
+                self.tx.send(inform_files)?;
             }
         }
     }

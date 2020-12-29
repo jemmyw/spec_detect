@@ -1,6 +1,5 @@
 use crate::repo_watcher::ChangedFile;
 use std::path::PathBuf;
-use tokio::stream::{self, Stream, StreamExt};
 use tokio::sync::{mpsc, watch};
 
 #[derive(Debug, Clone)]
@@ -106,18 +105,18 @@ impl AppStateManager {
 
         tokio::spawn(async move {
             loop {
-                let (_, mut state) = spawn_rx.recv().await.unwrap();
+                let (_, mut state) = spawn_rx.borrow().clone();
                 let event = event_rx.recv().await;
 
                 match event {
                     Some(Event::Quit) => {
                         state.on(Event::Quit);
-                        watch_tx.broadcast((Event::Quit, state));
+                        watch_tx.send((Event::Quit, state));
                         break;
                     }
                     Some(event) => {
                         state.on(event.clone());
-                        watch_tx.broadcast((event, state));
+                        watch_tx.send((event, state));
                     }
                     None => {
                         break;
@@ -129,11 +128,7 @@ impl AppStateManager {
         AppStateManager { event_tx, watch_rx }
     }
 
-    pub async fn get_state(&self) -> Option<(Event, AppState)> {
-        self.watch_rx.clone().recv().await
-    }
-
-    pub fn stream(&self) -> impl Stream<Item = (Event, AppState)> {
+    pub fn state(&self) -> watch::Receiver<(Event, AppState)> {
         self.watch_rx.clone()
     }
 

@@ -25,7 +25,8 @@ impl Default for Configuration {
 impl Configuration {
     pub fn read_configuration() -> Result<Self, ConfigError> {
         let mut config = Config::try_from(&Configuration::default())?;
-        config.merge(config::File::with_name("spec_detect"))?;
+        config.merge(config::File::with_name("spec_detect").required(false))?;
+        config.set("rspec.use_bundler", true)?;
         config.try_into()
     }
 }

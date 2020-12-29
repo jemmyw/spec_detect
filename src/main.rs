@@ -25,7 +25,7 @@ use util::path_filter::PathFilter;
 use anyhow::{Context, Result};
 use program::Program;
 use std::time::Duration;
-use tokio::stream::{Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt};
 
 use state::LocalStorage;
 
@@ -35,15 +35,26 @@ fn watch_repo(
     branch: &str,
     path_filter: PathFilter,
 ) -> Result<impl Stream<Item = Vec<ChangedFile>>> {
+    fn to_stream(
+        mut rx: tokio::sync::broadcast::Receiver<Vec<ChangedFile>>,
+    ) -> impl Stream<Item = Vec<ChangedFile>> {
+        let stream = async_stream::stream! {
+            while let item = rx.recv().await {
+                yield item.unwrap();
+            }
+        };
+        stream
+    }
+
     let watcher = RepoWatcher::new(".", branch)?;
-    Ok(watcher
-        .watch(Duration::from_millis(1000), true)
-        .map(move |files| {
-            files
-                .into_iter()
-                .filter(|f| path_filter.include_path(&f.path))
-                .collect::<Vec<ChangedFile>>()
-        }))
+    let rx = watcher.watch(Duration::from_millis(1000), true);
+
+    Ok(to_stream(rx).map(move |files| {
+        files
+            .into_iter()
+            .filter(|f| path_filter.include_path(&f.path))
+            .collect::<Vec<ChangedFile>>()
+    }))
 }
 
 fn program_from_opt(opt: &program::Opt) -> Box<dyn Program> {
@@ -66,14 +77,14 @@ async fn main() -> Result<()> {
     let state_manager = AppStateManager::new();
     let mut test_runner = TestRunner::new();
 
-    let mut ctrl_c_dispatcher = state_manager.dispatcher();
+    let ctrl_c_dispatcher = state_manager.dispatcher();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
         ctrl_c_dispatcher.send(app_state::Event::Quit).await
     });
 
-    let mut files_dispatcher = state_manager.dispatcher();
-    let mut test_files_dispatcher = test_runner.dispatcher();
+    let files_dispatcher = state_manager.dispatcher();
+    let test_files_dispatcher = test_runner.dispatcher();
     tokio::spawn(async move {
         tokio::pin!(changed_files_stream);
 
@@ -91,10 +102,8 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         tokio::pin!(test_event_stream);
 
-        some_loop!(event = test_event_stream.next() => {
-            match event {
-
-            }
+        some_loop!(event = test_event_stream.recv() => {
+            dbg!(event);
         });
     });
 

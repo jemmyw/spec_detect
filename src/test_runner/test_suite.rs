@@ -66,21 +66,19 @@ impl TestSuite {
         }
     }
 
-    pub fn update<F>(&self, f: F) -> Result<()>
+    pub fn update<F>(&self, f: F) -> ()
     where
         F: FnOnce(RwLockWriteGuard<HashMap<PathBuf, TestFile>>),
     {
         let lock = self.test_files.write().unwrap();
         f(lock);
-        Ok(())
     }
 
-    pub fn reader<F>(&self, f: F) -> Result<()>
+    pub fn reader<F>(&self, f: F) -> ()
     where
         F: FnOnce(RwLockReadGuard<HashMap<PathBuf, TestFile>>),
     {
         let lock = self.test_files.read().unwrap();
         f(lock);
-        Ok(())
     }
 }

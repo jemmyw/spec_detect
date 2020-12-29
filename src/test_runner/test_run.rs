@@ -1,37 +1,37 @@
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{path::PathBuf, time::Instant};
 
 use crate::ChangedFile;
 use crate::CONFIG;
 use crate::{
     ruby::rspec::{RSpec, RSpecEvent, RSpecRun},
     test_runner::test_map::*,
-    test_runner::test_suite::{TestExample, TestFile, TestStatus, TestSuite},
 };
 
 use anyhow::{anyhow, Context};
 use regex::Regex;
-use std::sync::mpsc::channel;
 use tokio::sync::mpsc;
 
+#[derive(Debug)]
 pub struct TestRunExample {
     path: PathBuf,
     location: String,
-    name: String,
 }
 
+#[derive(Debug)]
 pub struct TestRunFailure {
     example: TestRunExample,
     description: String,
 }
 
+#[derive(Debug)]
 pub enum TestRunEvent {
     Started,
     FileStarted(PathBuf),
     FileFinished(PathBuf),
-    ExampleStarted(TestRunExample),
     ExamplePassed(TestRunExample),
     ExampleFailed(TestRunFailure),
     Finished,
+    Error(String),
 }
 
 pub struct TestRun {
@@ -40,7 +40,6 @@ pub struct TestRun {
 
 impl TestRun {
     pub fn run(
-        suite: Arc<TestSuite>,
         changed_files: Vec<ChangedFile>,
         tx: mpsc::Sender<TestRunEvent>,
     ) -> anyhow::Result<Self> {
@@ -58,90 +57,109 @@ impl TestRun {
         let file_groups = grouped_files(glob_groups);
 
         let config = CONFIG.get().rspec.clone();
+        dbg!(&config);
         let rspec = RSpec::new(config);
         let locations = file_groups
             .list
             .iter()
             .filter_map(|f| f.as_os_str().to_str())
             .collect::<Vec<&str>>();
-        let (rtx, rrx) = channel::<RSpecEvent>();
+        let (rtx, mut rrx) = mpsc::channel::<RSpecEvent>(1);
 
-        let file_map = file_groups.map.clone();
-        let mut tx = tx.clone();
+        let tx = tx.clone();
 
-        std::thread::spawn(move || loop {
-            let mut last_event: Option<RSpecEvent> = None;
-            let event = rrx.recv().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let event = rrx.recv().await;
 
-            let mut current_file_started_at = Instant::now();
-            let mut current_file: Option<PathBuf> = None;
-            let mut current_example: Option<String> = None;
-
-            match event.clone() {
-                RSpecEvent::Start { count } => if let Some(count) = count {},
-                RSpecEvent::ExampleStarted {
-                    file_path: new_file_path,
-                    ..
-                } => match current_file {
+                match event {
                     None => {
-                        current_file_started_at = Instant::now();
-                        let test_file = TestFile::new(&new_file_path);
-
-                        suite.update(|mut s| {
-                            s.insert(new_file_path.clone(), test_file);
-                        });
-
-                        current_file.replace(new_file_path.clone());
-                        tx.send(TestRunEvent::FileStarted(new_file_path));
+                        tx.send(TestRunEvent::Error("Events stopped".to_string()))
+                            .await
+                            .unwrap();
+                        break;
                     }
-                    Some(current_file_path) => {
-                        if current_file_path != new_file_path {
-                            let test_file = TestFile::new(&new_file_path);
+                    Some(event) => {
+                        let mut current_file_started_at = Instant::now();
+                        let mut current_file: Option<PathBuf> = None;
 
-                            suite.update(|mut s| {
-                                if let Some(current_test_file) = s.get_mut(&current_file_path) {
-                                    current_test_file.duration =
-                                        Instant::now().duration_since(current_file_started_at);
+                        match event.clone() {
+                            RSpecEvent::Start { .. } => {
+                                tx.send(TestRunEvent::Started).await.unwrap()
+                            }
+                            RSpecEvent::ExampleStarted {
+                                file_path: new_file_path,
+                                ..
+                            } => match current_file {
+                                None => {
+                                    current_file_started_at = Instant::now();
+
+                                    current_file.replace(new_file_path.clone());
+                                    tx.send(TestRunEvent::FileStarted(new_file_path))
+                                        .await
+                                        .unwrap();
                                 }
+                                Some(current_file_path) => {
+                                    if current_file_path != new_file_path {
+                                        current_file_started_at = Instant::now();
+                                        current_file = Some(new_file_path.clone());
 
-                                s.insert(new_file_path.clone(), test_file);
-                            });
-
-                            current_file_started_at = Instant::now();
-                            current_file = Some(new_file_path.clone());
-
-                            tx.send(TestRunEvent::FileFinished(current_file_path));
-                            tx.send(TestRunEvent::FileStarted(new_file_path));
+                                        tx.send(TestRunEvent::FileFinished(current_file_path))
+                                            .await
+                                            .unwrap();
+                                        tx.send(TestRunEvent::FileStarted(new_file_path))
+                                            .await
+                                            .unwrap();
+                                    }
+                                }
+                            },
+                            RSpecEvent::ExamplePassed {
+                                location,
+                                file_path,
+                                description,
+                                run_time,
+                                ..
+                            } => {
+                                tx.send(TestRunEvent::ExamplePassed(TestRunExample {
+                                    location,
+                                    path: file_path,
+                                }))
+                                .await
+                                .unwrap();
+                            }
+                            RSpecEvent::ExampleFailed {
+                                location,
+                                file_path,
+                                description,
+                                run_time,
+                                exception,
+                                ..
+                            } => {
+                                tx.send(TestRunEvent::ExampleFailed(TestRunFailure {
+                                    description: exception.unwrap_or_default(),
+                                    example: TestRunExample {
+                                        location: location.unwrap_or_default(),
+                                        path: file_path,
+                                    },
+                                }))
+                                .await
+                                .unwrap();
+                            }
+                            RSpecEvent::Stop {} => {
+                                tx.send(TestRunEvent::Finished).await.unwrap();
+                            }
+                            RSpecEvent::Error { msg } => {
+                                tx.send(TestRunEvent::Error(msg)).await.unwrap();
+                                break;
+                            }
+                            RSpecEvent::Exit => {
+                                tx.send(TestRunEvent::Finished).await.unwrap();
+                                break;
+                            }
                         }
                     }
-                },
-                RSpecEvent::ExamplePassed {
-                    id,
-                    load_time,
-                    location,
-                    file_path,
-                    description,
-                    run_time,
-                } => {}
-                RSpecEvent::ExampleFailed {
-                    id,
-                    load_time,
-                    location,
-                    file_path,
-                    description,
-                    run_time,
-                    exception,
-                } => {}
-                RSpecEvent::Stop {} => {}
-                RSpecEvent::Error { msg } => {
-                    break;
-                }
-                RSpecEvent::Exit => {
-                    break;
                 }
             }
-
-            last_event = Some(event);
         });
 
         let rspec_run = rspec.run(locations.clone(), rtx)?;
