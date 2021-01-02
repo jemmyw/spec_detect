@@ -9,6 +9,11 @@ RSpec.describe do
         expect(true).to eq true
       end
 
+      it "is slow" do
+        sleep 2
+        expect(true).to eq true
+      end
+
       it "passes 2" do
         expect(false).to eq false
       end

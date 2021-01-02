@@ -1,61 +1,47 @@
 mod ruby;
+use anyhow::Result;
 use ruby::rspec::{RSpec, RSpecConfiguration, RSpecEvent};
-use std::sync::mpsc::channel;
-use std::thread;
+use tokio::sync::mpsc::channel;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let mut config = RSpecConfiguration::default();
     config.use_bundler = true;
 
-    let (tx, rx) = channel::<RSpecEvent>();
+    let (tx, mut rx) = channel::<RSpecEvent>(1);
 
-    let jh = thread::spawn(move || loop {
-        let event_result = rx.recv();
+    let jh = tokio::spawn(async move {
+        loop {
+            let event_result = rx.recv().await;
 
-        if event_result.is_err() {
-            println!("oh no an error on rx");
-            break;
-        }
-
-        let event = event_result.unwrap();
-
-        match event {
-            RSpecEvent::Start { count: _ } => println!("Specs started"),
-            RSpecEvent::ExampleStarted {
-                id: _,
-                location: _,
-                description: _,
-            } => {
-                println!("Example started");
-            }
-            RSpecEvent::ExamplePassed {
-                id: _,
-                load_time: _,
-                location: _,
-                description: _,
-                run_time: _,
-            } => {
-                println!("Example passed");
-            }
-            RSpecEvent::ExampleFailed {
-                id: _,
-                load_time: _,
-                location: _,
-                description: _,
-                run_time: _,
-                exception: _,
-            } => {
-                println!("Example failed");
-            }
-            RSpecEvent::Stop {} => {
-                println!("Done");
-            }
-            RSpecEvent::Exit => {
-                println!("Exit");
+            if event_result.is_none() {
+                println!("oh no no result");
                 break;
             }
-            RSpecEvent::Error { msg } => {
-                println!("RSpec error {}", msg);
+
+            let event = event_result.unwrap();
+
+            match event {
+                RSpecEvent::Start { count: _ } => println!("Specs started"),
+                RSpecEvent::ExampleStarted { description, .. } => {
+                    println!("Example started: {:?}", description);
+                }
+                RSpecEvent::ExamplePassed { .. } => {
+                    println!("Example passed");
+                }
+                RSpecEvent::ExampleFailed { .. } => {
+                    println!("Example failed");
+                }
+                RSpecEvent::Stop {} => {
+                    println!("Done");
+                }
+                RSpecEvent::Exit => {
+                    println!("Exit");
+                    break;
+                }
+                RSpecEvent::Error { msg } => {
+                    println!("RSpec error {}", msg);
+                }
             }
         }
     });
@@ -64,9 +50,8 @@ fn main() -> anyhow::Result<()> {
     let locations = vec!["test/example_specs.rb"];
 
     let run = rspec.run(locations, tx)?;
-    run.wait()?;
-
-    jh.join().unwrap();
+    run.wait().await.unwrap();
+    jh.await.unwrap();
 
     Ok(())
 }

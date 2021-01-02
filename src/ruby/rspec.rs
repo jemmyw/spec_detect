@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::thread;
+use std::{collections::HashMap, path::PathBuf};
+use tokio::sync::mpsc::Sender;
 
 use serde::{Deserialize, Serialize};
 
@@ -14,12 +14,14 @@ pub enum RSpecEvent {
     ExampleStarted {
         id: String,
         location: String,
+        file_path: PathBuf,
         description: Option<String>,
     },
     ExamplePassed {
         id: String,
         load_time: Option<f64>,
         location: String,
+        file_path: PathBuf,
         description: String,
         run_time: f64,
     },
@@ -27,6 +29,7 @@ pub enum RSpecEvent {
         id: String,
         load_time: Option<f64>,
         location: Option<String>,
+        file_path: PathBuf,
         description: Option<String>,
         run_time: f64,
         exception: Option<String>,
@@ -56,14 +59,14 @@ impl Default for RSpecConfiguration {
 }
 
 pub struct RSpecRun {
-    handle: std::thread::JoinHandle<()>,
+    handle: tokio::task::JoinHandle<()>,
     cmd: std::process::Child,
 }
 
 impl RSpecRun {
-    pub fn wait(self) -> anyhow::Result<()> {
+    pub async fn wait(self) -> anyhow::Result<()> {
         self.handle
-            .join()
+            .await
             .map_err(|_e| anyhow::Error::msg("rspec wait error"))
     }
 
@@ -84,7 +87,7 @@ impl RSpec {
     pub fn run<T: AsRef<str>>(
         &self,
         locations: Vec<T>,
-        tx: std::sync::mpsc::Sender<RSpecEvent>,
+        tx: Sender<RSpecEvent>,
     ) -> anyhow::Result<RSpecRun> {
         let ref_locations: Vec<&str> = locations.iter().map(|t| t.as_ref()).collect();
         let config = &self.config.clone();
@@ -108,6 +111,7 @@ impl RSpec {
         args.push("./test/rust_rspec_formatter.rb");
 
         let args_with_locations: Vec<&&str> = args.iter().chain(ref_locations.iter()).collect();
+        dbg!(program);
         dbg!(args_with_locations.clone());
 
         let mut cmd = Command::new(program)
@@ -120,7 +124,7 @@ impl RSpec {
 
         let stdout = cmd.stdout.take().unwrap();
         #[allow(unused_must_use)]
-        let handle = thread::spawn(move || {
+        let handle = tokio::spawn(async move {
             let mut stdout_reader = BufReader::with_capacity(10, stdout);
 
             loop {
@@ -131,7 +135,8 @@ impl RSpec {
                     Err(err) => {
                         tx.send(RSpecEvent::Error {
                             msg: err.to_string(),
-                        });
+                        })
+                        .await;
                         break;
                     }
                     Ok(usize) if usize == 0 => {
@@ -144,12 +149,13 @@ impl RSpec {
                             let err = deser.err().unwrap();
                             tx.send(RSpecEvent::Error {
                                 msg: err.to_string(),
-                            });
+                            })
+                            .await;
                             break;
                         }
 
                         let event = deser.unwrap();
-                        let res = tx.send(event);
+                        let res = tx.send(event).await;
 
                         if res.is_err() {
                             break;
@@ -158,7 +164,7 @@ impl RSpec {
                 }
             }
 
-            tx.send(RSpecEvent::Exit);
+            tx.send(RSpecEvent::Exit).await;
             drop(tx);
         });
 

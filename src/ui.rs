@@ -1,14 +1,13 @@
-use crate::app_state::{AppState, AppStateManager, Event};
+use crate::app_state::{AppState, AppStateManager, Event, WatchedFile};
 use crate::input;
 use crate::program::Program;
-use crate::ChangedFile;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::io;
 use termion::event::Key;
 use termion::raw::IntoRawMode;
-use tokio::stream::{Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt};
 use tui::backend::TermionBackend;
 use tui::Terminal;
 use tui::{
@@ -25,10 +24,10 @@ use tui::{
     Frame,
 };
 
-fn changed_file_text(file: &ChangedFile, running: bool) -> Spans {
-    let t = file.path.to_string_lossy();
+fn file_text(file: &WatchedFile) -> Spans {
+    let t = file.changed_file.path.to_string_lossy();
 
-    let status = match file.status {
+    let status = match file.changed_file.status {
         git2::Delta::Unmodified => "U",
         git2::Delta::Added => "A",
         git2::Delta::Deleted => "D",
@@ -42,7 +41,12 @@ fn changed_file_text(file: &ChangedFile, running: bool) -> Spans {
         git2::Delta::Conflicted => "C",
     };
 
-    let running_text = if running { "> " } else { "  " };
+    let running_text = match file.test_status {
+        crate::app_state::TestStatus::Unknown => "> ",
+        crate::app_state::TestStatus::Running => "> ",
+        crate::app_state::TestStatus::Passed => "  ",
+        crate::app_state::TestStatus::Failed => "x  ",
+    };
 
     Spans::from(vec![
         Span::styled(running_text, Style::default().fg(Color::Yellow)),
@@ -58,9 +62,9 @@ pub fn draw<B: Backend>(f: &mut Frame<B>, state: &AppState) {
     //     .split(f.size());
 
     let files: Vec<ListItem> = state
-        .changed_files
+        .watched_files
         .iter()
-        .map(|c| ListItem::new(changed_file_text(c, true)))
+        .map(|c| ListItem::new(file_text(c)))
         .collect();
     let list = List::new(files).block(
         Block::default().borders(Borders::ALL).title(Span::styled(
@@ -79,7 +83,7 @@ pub struct TuiApp {}
 #[async_trait]
 impl Program for TuiApp {
     async fn run<'stream>(&self, app: AppStateManager) -> Result<()> {
-        let state_stream = app.stream();
+        let state_stream = app.state();
         tokio::pin!(state_stream);
 
         let mut input_rx = input::listen();
@@ -93,18 +97,16 @@ impl Program for TuiApp {
 
         loop {
             tokio::select! {
-                app_state = state_stream.next() => {
-                    match app_state {
-                        Some((_, app_state)) => {
-                            if app_state.should_quit {
-                                break;
-                            }
-                            terminal
-                                .draw(|f| draw(f, &app_state))
-                                .context("Error while updating UI")?;
-                        },
-                        None => {break;}
+                changed = state_stream.changed() => {
+                    if changed.is_err() { break; }
+                    let (_, app_state) = state_stream.borrow().clone();
+
+                    if app_state.should_quit {
+                        break;
                     }
+                    terminal
+                        .draw(|f| draw(f, &app_state))
+                        .context("Error while updating UI")?;
                 }
                 key = input_rx.recv() => {
                     let key = key.unwrap();

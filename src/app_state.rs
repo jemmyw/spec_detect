@@ -1,21 +1,40 @@
 use crate::repo_watcher::ChangedFile;
-use tokio::stream::{self, Stream, StreamExt};
+use std::path::PathBuf;
 use tokio::sync::{mpsc, watch};
+
+#[derive(Debug, Clone)]
+pub enum TestStatus {
+    Unknown,
+    Running,
+    Passed,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub struct WatchedFile {
+    pub changed_file: ChangedFile,
+    pub test_status: TestStatus,
+}
+
+#[derive(Debug, Clone)]
+pub struct TestFile {
+    pub test_file: PathBuf,
+}
 
 #[derive(Debug, Clone)]
 pub enum Event {
     Start,
     FilesChanged(Vec<ChangedFile>),
-    TestRunning,
-    TestPassed,
-    TestFailed,
+    TestRunning(TestFile),
+    TestPassed(TestFile),
+    TestFailed(TestFile),
     Quit,
 }
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub should_quit: bool,
-    pub changed_files: Vec<ChangedFile>,
+    pub watched_files: Vec<WatchedFile>,
     pub last_changed_files: Vec<ChangedFile>,
 }
 
@@ -23,7 +42,7 @@ impl AppState {
     pub fn new() -> AppState {
         AppState {
             should_quit: false,
-            changed_files: vec![],
+            watched_files: vec![],
             last_changed_files: vec![],
         }
     }
@@ -34,9 +53,9 @@ impl AppState {
             Event::FilesChanged(files) => {
                 self.on_file_event(files);
             }
-            Event::TestRunning => {}
-            Event::TestPassed => {}
-            Event::TestFailed => {}
+            Event::TestRunning(_) => {}
+            Event::TestPassed(_) => {}
+            Event::TestFailed(_) => {}
             Event::Quit => {
                 self.on_quit();
             }
@@ -48,13 +67,17 @@ impl AppState {
     pub fn on_file_event(&mut self, event: Vec<ChangedFile>) -> anyhow::Result<()> {
         self.last_changed_files = event.clone();
 
-        self.changed_files = event
+        self.watched_files = event
             .into_iter()
+            .map(|f| WatchedFile {
+                changed_file: f,
+                test_status: TestStatus::Unknown,
+            })
             .chain(
-                self.changed_files
+                self.watched_files
                     .clone()
                     .into_iter()
-                    .filter(|f| !self.last_changed_files.contains(f)),
+                    .filter(|f| !self.last_changed_files.contains(&f.changed_file)),
             )
             .collect();
 
@@ -82,18 +105,18 @@ impl AppStateManager {
 
         tokio::spawn(async move {
             loop {
-                let (_, mut state) = spawn_rx.recv().await.unwrap();
+                let (_, mut state) = spawn_rx.borrow().clone();
                 let event = event_rx.recv().await;
 
                 match event {
                     Some(Event::Quit) => {
                         state.on(Event::Quit);
-                        watch_tx.broadcast((Event::Quit, state));
+                        watch_tx.send((Event::Quit, state));
                         break;
                     }
                     Some(event) => {
                         state.on(event.clone());
-                        watch_tx.broadcast((event, state));
+                        watch_tx.send((event, state));
                     }
                     None => {
                         break;
@@ -105,11 +128,7 @@ impl AppStateManager {
         AppStateManager { event_tx, watch_rx }
     }
 
-    pub async fn get_state(&self) -> Option<(Event, AppState)> {
-        self.watch_rx.clone().recv().await
-    }
-
-    pub fn stream(&self) -> impl Stream<Item = (Event, AppState)> {
+    pub fn state(&self) -> watch::Receiver<(Event, AppState)> {
         self.watch_rx.clone()
     }
 
